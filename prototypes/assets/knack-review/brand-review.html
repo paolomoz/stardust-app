@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Knack — Brand Extraction Review</title>
+<style>
+  :root{
+    --bg:#ffffff; --surface:#fafafa; --surface2:#f1f1f1; --text:#1a181d;
+    --muted:#75787b; --primary:#982a86; --primary-dark:#821570; --accent:#ff349a;
+    --coral:#fa816e; --border:#e5e5e5;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Inter",Arial,Helvetica,sans-serif;color:var(--text);background:var(--bg);line-height:1.55}
+  .wrap{max-width:1040px;margin:0 auto;padding:48px 24px 96px}
+  header.hero{background:linear-gradient(to top,#fae7f6,#ffffff);border-radius:16px;padding:40px;margin-bottom:40px;border:1px solid var(--border)}
+  h1{font-size:40px;font-weight:700;margin:0 0 8px;letter-spacing:-0.02em}
+  h2{font-size:26px;font-weight:600;margin:48px 0 16px;letter-spacing:-0.01em}
+  h3{font-size:18px;font-weight:600;margin:24px 0 8px}
+  .sub{color:var(--muted);font-size:15px}
+  .cite{color:var(--muted);font-size:12px;font-style:italic;margin-top:4px}
+  .grid{display:grid;gap:16px}
+  .swatches{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  .sw{border:1px solid var(--border);border-radius:11px;overflow:hidden}
+  .sw .chip{height:72px}
+  .sw .meta{padding:8px 10px;font-size:12px}
+  .sw .role{font-weight:600;font-size:13px;text-transform:capitalize}
+  .sw code{color:var(--muted)}
+  .grads{grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+  .grad{height:80px;border-radius:11px;border:1px solid var(--border);display:flex;align-items:flex-end;padding:8px;color:#fff;font-size:11px;text-shadow:0 1px 2px rgba(0,0,0,.4)}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{font-weight:600;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+  .pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .pill{background:var(--surface);border:1px solid var(--border);border-radius:9999px;padding:6px 14px;font-size:13px}
+  .btnrow{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:8px}
+  .btn{border:0;border-radius:11px;padding:12px 24px;font-weight:600;font-family:inherit;font-size:14px;color:#fff}
+  .btn.cta{background:var(--accent)} .btn.sec{background:var(--primary)}
+  .btn.tab{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:9999px}
+  .tension{border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:8px;padding:16px 18px;margin-bottom:14px;background:var(--surface)}
+  .tension .badge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;color:var(--primary);background:#fae7f6;border-radius:6px;padding:2px 8px;margin-bottom:8px}
+  .ia{counter-reset:step;list-style:none;padding:0}
+  .ia li{padding:8px 0 8px 40px;position:relative;border-bottom:1px solid var(--border)}
+  .ia li::before{counter-increment:step;content:counter(step);position:absolute;left:0;top:8px;width:26px;height:26px;border-radius:50%;background:var(--primary);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:600}
+  .logo{max-height:48px}
+  .callout{background:var(--surface2);border-radius:11px;padding:16px 18px;font-size:14px}
+  .fam{font-size:13px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <img class="logo" src="assets/logo.svg" alt="Knack">
+    <h1>Brand Extraction Review</h1>
+    <p class="sub">Single-page capture of <strong>knack.com</strong> — the source brand surface for an uplift redesign. Rendered in Knack's own captured colors and Inter type.</p>
+    <p class="cite">Source: stardust/current/_brand-extraction.json · pages/home.json · Playwright render, HTTP 200, medium wait. Coverage: home only (uplift --single); cross-page aggregation N/A.</p>
+  </header>
+
+  <section>
+    <h2>Palette</h2>
+    <div class="grid swatches">
+      <div class="sw"><div class="chip" style="background:#ffffff;border-bottom:1px solid var(--border)"></div><div class="meta"><div class="role">Background</div><code>#FFFFFF</code></div></div>
+      <div class="sw"><div class="chip" style="background:#fafafa"></div><div class="meta"><div class="role">Surface</div><code>#FAFAFA</code></div></div>
+      <div class="sw"><div class="chip" style="background:#f1f1f1"></div><div class="meta"><div class="role">Surface 2</div><code>#F1F1F1</code></div></div>
+      <div class="sw"><div class="chip" style="background:#1a181d"></div><div class="meta"><div class="role">Text</div><code>#1A181D</code> · <code>--body-black</code></div></div>
+      <div class="sw"><div class="chip" style="background:#75787b"></div><div class="meta"><div class="role">Text muted</div><code>#75787B</code></div></div>
+      <div class="sw"><div class="chip" style="background:#982a86"></div><div class="meta"><div class="role">Primary</div><code>#982A86</code> magenta</div></div>
+      <div class="sw"><div class="chip" style="background:#821570"></div><div class="meta"><div class="role">Primary dark</div><code>#821570</code> · <code>--dark-purple</code></div></div>
+      <div class="sw"><div class="chip" style="background:#ff349a"></div><div class="meta"><div class="role">Accent / CTA</div><code>#FF349A</code> · <code>--pink</code></div></div>
+      <div class="sw"><div class="chip" style="background:#fa816e"></div><div class="meta"><div class="role">Coral</div><code>#FA816E</code></div></div>
+    </div>
+    <p class="cite">_brand-extraction.json § palette — aggregated computed colors, home page.</p>
+
+    <h3>Signature gradients</h3>
+    <div class="grid grads">
+      <div class="grad" style="background:linear-gradient(90deg,#982a86,#fa816e)">magenta → coral</div>
+      <div class="grad" style="background:linear-gradient(90deg,#86307b,#e61875)">magenta → pink</div>
+      <div class="grad" style="background:linear-gradient(to top,#fae7f6,#ffffff);color:#982a86;text-shadow:none">pink wash → white</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Typography</h2>
+    <p style="font-family:Inter;font-size:48px;font-weight:600;letter-spacing:-.02em;margin:8px 0">The most secure app builder.</p>
+    <p style="font-family:Inter;font-size:18px;font-weight:400;color:var(--muted);margin:0">Body — Inter, 16–18px. Create custom business solutions with AI and no code.</p>
+    <p class="fam">Heading &amp; body: <strong>Inter</strong> (300–700) · Accent: <strong>Lato</strong> (700/900, legacy buttons + FAQ toggles).</p>
+    <p class="cite">_brand-extraction.json § type. Scale audit: <strong>ad-hoc</strong> (48 → 44 → 40 → 32 → 22 → 20).</p>
+  </section>
+
+  <section>
+    <h2>Components</h2>
+    <div class="btnrow">
+      <button class="btn cta">Start Building For Free</button>
+      <button class="btn sec">Get Started Free</button>
+      <button class="btn tab">Build a Database</button>
+      <button class="btn tab">Edit with AI</button>
+    </div>
+    <p class="cite">Radius 11px on buttons/cards; pill (9999px) on interactive feature tabs. Soft low-contrast shadows.</p>
+    <div class="pills">
+      <span class="pill">hero-split</span><span class="pill">social-proof-logos</span>
+      <span class="pill">interactive-feature-tabs</span><span class="pill">comparison-3up</span>
+      <span class="pill">feature-6up</span><span class="pill">stat-row</span>
+      <span class="pill">faq-accordion</span><span class="pill">cta-band</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Information architecture (homepage)</h2>
+    <ol class="ia">
+      <li>Promo bar — "Get 65% off Starter Plans" (time-bound)</li>
+      <li>Header / mega-nav — Solutions · Product · Pricing · Resources</li>
+      <li><strong>Hero</strong> — "The most secure app and database builder for businesses." + dual CTA</li>
+      <li>Social proof — "Trusted by 100,000+ users" logo wall</li>
+      <li>"No Code. No Delay. No Hassle." — 3 value cards + interactive feature tabs</li>
+      <li>"How Knack Stands Apart" — 3-up competitor comparison</li>
+      <li>"Built on Enterprise-Grade Components" — 6 capability cards</li>
+      <li>"Move Beyond Patchwork Integrations" — integrations + See All Integrations</li>
+      <li>Results / customer story — stat row ($250k+ · 92% · 10x) + Read The Story</li>
+      <li>FAQs — accordion</li>
+      <li>Final CTA band — "Start Free Trial"</li>
+      <li>Footer</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Tensions surfaced</h2>
+
+    <div class="tension">
+      <span class="badge">T-scale · observed</span>
+      <p style="margin:0">Type scale is <strong>ad-hoc</strong> (48 → 44 → 40 → 32 → 22 → 20px, ratios 1.09 / 1.10 / 1.25 / 1.45 / 1.10 — no consistent ratio). The page-builder/WordPress fingerprint. A redesign can impose a single modular scale for a more intentional typographic rhythm.</p>
+    </div>
+
+    <div class="tension">
+      <span class="badge">T-cta-vocab · observed</span>
+      <p style="margin:0">CTA voice is <strong>fragmented</strong>: three different sign-up labels (<em>Start Building For Free</em>, <em>Get Started Free</em>, <em>Start Free Trial</em>) and three see-more variants (<em>Explore this solution</em>, <em>See More Solutions</em>, <em>See All Integrations</em>). 21 distinct CTA labels overall. A canonical primary action would sharpen conversion.</p>
+    </div>
+
+    <div class="tension">
+      <span class="badge">T-radius-vocab · observed</span>
+      <p style="margin:0">Radius vocabulary is mixed (11 / 12 / 15 / 16px plus 9999px pill). 11px dominates but the small-radius spread reads as inconsistent. A redesign should pick one small radius.</p>
+    </div>
+
+    <div class="tension">
+      <span class="badge">T-tokens-unused · observed</span>
+      <p style="margin:0">The site ships a full <strong>Bootstrap + WordPress token layer</strong> (<code>--bs-primary</code> blue, <code>--bs-*</code> semantics, <code>--wp--preset--*</code>) whose framework defaults don't match the magenta brand — the real brand colors live in separate tokens (<code>--pink</code>, <code>--dark-purple</code>, <code>--body-black</code>). The token layer exists in name only; a redesign can collapse to a single coherent brand-token system.</p>
+    </div>
+
+    <div class="tension">
+      <span class="badge">T-logo-variants · observed</span>
+      <p style="margin:0">Only one logo variant was captured (inline SVG wordmark, magenta). The redesign will likely need monochrome / inverted variants for dark sections and the footer.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Voice sample</h2>
+    <div class="callout">
+      <p style="margin:0 0 8px"><strong>Hero:</strong> "The most secure app and database builder for businesses."</p>
+      <p style="margin:0 0 8px"><strong>Sub:</strong> "Create custom business solutions with AI and no code."</p>
+      <p style="margin:0"><strong>Tone (guess):</strong> bold-direct — superlative claim, named-competitor comparison (Lovable, Bolt, Airtable, Bubble), ROI stats ($250k+ saved, 92% retention, 10x faster).</p>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

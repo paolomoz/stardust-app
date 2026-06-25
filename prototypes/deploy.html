@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>stardust · deploy to AEM</title>
+<link rel="stylesheet" href="app.css" />
+<style>
+  .dep { padding: 22px; max-width: 760px; }
+  .connect { display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--hairline-soft); border-radius: 14px; box-shadow: 0 1px 2px rgba(26,31,56,0.04); }
+  .connect .aem { width: 34px; height: 34px; border-radius: 8px; background: #fa0f00; display: grid; place-items: center; font: 700 15px/1 var(--display); color: #fff; flex: none; }
+  .connect .meta { flex: 1; min-width: 0; }
+  .connect .meta .t { font-size: 14.5px; color: var(--fg); font-weight: 500; }
+  .connect .meta .s { font: 500 12px/1.4 var(--mono); color: var(--fg-dim); margin-top: 3px; }
+  .connect .ok { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--success); font-weight: 500; }
+  .sec-h { display: flex; align-items: baseline; justify-content: space-between; margin: 24px 2px 12px; }
+  .sec-h .e { font: 500 11px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-dim); }
+  .sec-h .n { font: 500 12px/1 var(--mono); color: var(--fg-faint); }
+  .maps { display: flex; flex-direction: column; gap: 8px; }
+  .map { display: grid; grid-template-columns: 1fr 28px 1fr; align-items: center; gap: 10px; padding: 13px 16px; background: var(--surface); border: 1px solid var(--hairline-soft); border-radius: 11px; }
+  .map .from { color: var(--fg); font-size: 14px; }
+  .map .from span { color: var(--fg-dim); font-size: 12.5px; display: block; margin-top: 2px; }
+  .map .arr { color: var(--amber-deep); text-align: center; }
+  .map .to { display: flex; align-items: center; gap: 8px; }
+  .map .to code { font: 600 12.5px/1 var(--mono); color: var(--fg); background: var(--sunken); padding: 5px 9px; border-radius: 6px; }
+  .map .to .kind { font-size: 12px; color: var(--fg-faint); }
+  .sum { margin-top: 16px; display: flex; gap: 18px; font: 500 12.5px/1 var(--mono); color: var(--fg-dim); }
+  .sum b { color: var(--fg); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="star" viewBox="0 0 24 24" aria-hidden="true"><g fill="#e8b95e"><rect x="10" y="2" width="4" height="4"/><rect x="10" y="6" width="4" height="4" opacity=".6"/><rect x="10" y="18" width="4" height="4"/><rect x="10" y="14" width="4" height="4" opacity=".6"/><rect x="2" y="10" width="4" height="4"/><rect x="6" y="10" width="4" height="4" opacity=".6"/><rect x="18" y="10" width="4" height="4"/><rect x="14" y="10" width="4" height="4" opacity=".6"/></g><rect x="9" y="9" width="6" height="6" fill="#ffd98a"/></svg>
+      <span class="name"><b>stardust</b></span>
+    </div>
+    <nav class="ladder" aria-label="progress">
+      <div class="rung done"><span class="pip"></span><span class="lbl">prototype</span></div>
+      <div class="rung active"><span class="pip"></span><span class="lbl">deploy</span></div>
+    </nav>
+    <div class="spacer"></div>
+    <button class="btn btn-quiet" data-nav="workspace.html">← Back</button>
+    <button class="btn btn-primary" data-nav="deploy-run.html">Deploy 3 templates <span class="arr">→</span></button>
+  </header>
+
+  <div class="middle">
+    <section class="conv" aria-label="conversation">
+      <div class="conv-head"><div class="who">
+        
+        <span class="proj"><b>knack.com</b> · redesign</span></div>
+      </div>
+      <div class="conv-thread">
+        <div class="msg fade">
+          <div class="lead"><span class="star">✦</span> Here's how your prototype becomes <b>Edge Delivery</b> blocks.</div>
+          <p>Each section maps to a clean EDS block; the prose stays as default content. I'll deploy the three page templates first — the rest of the site rolls out after.</p>
+          <p>Connected to your AEM project. Review the mapping, then deploy.</p>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="field"><input type="text" placeholder="ask about the mapping…" aria-label="message" /><button class="send" aria-label="send"><svg width="15" height="15" viewBox="0 0 16 16"><path d="M2 8h10M8 4l4 4-4 4" fill="none" stroke="#0a1024" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+        <div class="hint">Try <span class="mono">"keep the FAQ as one block"</span>.</div>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="deploy mapping">
+      <div class="subheader">
+        <div class="sub-left"><span class="eyebrow">deploy</span><span style="font-size:13px;color:var(--fg-dim)">Edge Delivery Services</span></div>
+        <div class="sub-right"><span style="font:500 12px/1 var(--mono);color:var(--fg-faint)">home template</span></div>
+      </div>
+      <div class="cardbody">
+        <div class="dep">
+          <div class="connect fade">
+            <div class="aem">Ae</div>
+            <div class="meta"><div class="t">Adobe Experience Manager · Edge Delivery</div><div class="s">paolomoz / uplift-knack-eds · DA: /knack</div></div>
+            <span class="ok">✓ Connected</span>
+          </div>
+
+          <div class="sec-h"><span class="e">What deploys</span><span class="n">home → 8 blocks</span></div>
+          <div class="maps stagger">
+            <div class="map"><div class="from">Hero — “Watch it build”<span>magenta gradient, one CTA</span></div><div class="arr">→</div><div class="to"><code>hero</code><span class="kind">block</span></div></div>
+            <div class="map"><div class="from">Feature switcher<span>publish · database · AI · roles</span></div><div class="arr">→</div><div class="to"><code>tabs</code><span class="kind">block</span></div></div>
+            <div class="map"><div class="from">How Knack stands apart<span>head-to-head comparison</span></div><div class="arr">→</div><div class="to"><code>comparison</code><span class="kind">block</span></div></div>
+            <div class="map"><div class="from">Enterprise components<span>6-up capability grid</span></div><div class="arr">→</div><div class="to"><code>cards</code><span class="kind">block</span></div></div>
+            <div class="map"><div class="from">Real outcomes<span>$250k+ · 92% · 10×</span></div><div class="arr">→</div><div class="to"><code>metrics</code><span class="kind">block</span></div></div>
+            <div class="map"><div class="from">Integrations<span>logo strip</span></div><div class="arr">→</div><div class="to"><code>logos</code><span class="kind">block</span></div></div>
+            <div class="map"><div class="from">FAQ<span>accordion</span></div><div class="arr">→</div><div class="to"><code>accordion</code><span class="kind">block</span></div></div>
+            <div class="map"><div class="from">Closing CTA band</div><div class="arr">→</div><div class="to"><code>cta</code><span class="kind">block</span></div></div>
+          </div>
+
+          <div class="sum"><span>templates <b>3</b></span><span>blocks <b>8</b></span><span>content pages <b>3</b></span><span>assets <b>11</b></span></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="rail">
+    <div class="item"><span class="ic">◐</span> palette <span class="swatches"><i style="background:#982a86"></i><i style="background:#ff349a"></i><i style="background:#fa816e"></i><i style="background:#1a181d"></i></span></div>
+    <div class="item"><span class="amber">✦</span> target <b>uplift-knack-eds</b></div>
+    <div class="item"><span class="ic">▦</span> templates <b>3</b></div>
+    <div class="spacer"></div>
+    <div class="item clock">⏱ connected to AEM</div>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

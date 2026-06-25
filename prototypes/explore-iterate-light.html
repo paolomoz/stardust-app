@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>stardust · explore — iterate (light)</title>
+<style>
+  :root {
+    /* grounds (day) */
+    --ink: #0a1024;            /* kept for ink-on-amber text */
+    --bg: #f5f0e6;             /* dust — chrome ground (topbar, conv, rail) */
+    --canvas: #e6ddca;         /* deeper warm neutral — stage ground, so paper floats */
+    --surface: #fffdf8;        /* raised — cards, inputs, bubbles */
+    --surface-2: #f6efe2;
+    /* signal */
+    --amber: #e8b95e;          /* star core / emphasis / selection */
+    --amber-deep: #c9822d;     /* the signal on light — actions, accents, eyebrows */
+    --amber-light: #ffd98a;
+    /* fg on light (deep-ink ramp) */
+    --fg: rgba(26,31,56,0.95);
+    --fg-muted: rgba(26,31,56,0.72);
+    --fg-dim: rgba(26,31,56,0.52);
+    --fg-faint: rgba(26,31,56,0.30);
+    --hairline: rgba(26,31,56,0.14);
+    --hairline-soft: rgba(26,31,56,0.08);
+    /* state */
+    --danger: #d8453f;
+    --success: #5f9669;
+    /* type */
+    --display: "SF Pro Display", Inter, system-ui, sans-serif;
+    --text: "SF Pro Text", Inter, system-ui, sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+    /* shell */
+    --topbar-h: 56px;
+    --rail-h: 42px;
+    --conv-w: 408px;
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--fg);
+    font: 400 15px/1.55 var(--text);
+    font-feature-settings: "ss01", "ss02";
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+  ::selection { background: var(--amber); color: var(--ink); }
+  button { font: inherit; color: inherit; cursor: pointer; background: none; border: none; }
+  .mono { font-family: var(--mono); }
+  .eyebrow {
+    font: 500 11px/1 var(--mono);
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--amber-deep);
+  }
+
+  /* ---------- shell ---------- */
+  .app { height: 100vh; display: grid; grid-template-rows: var(--topbar-h) 1fr var(--rail-h); }
+
+  /* ---------- topbar ---------- */
+  .topbar {
+    display: flex; align-items: center; gap: 20px;
+    padding: 0 18px 0 20px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--hairline-soft);
+  }
+  .brand { display: flex; align-items: center; gap: 11px; }
+  .brand .star { width: 22px; height: 22px; display: block; }
+  .brand .name { font: 500 15px/1 var(--display); letter-spacing: -0.01em; color: var(--fg); }
+  .brand .name b { font-weight: 600; }
+  .brand .dot { color: var(--fg-faint); margin: 0 2px; }
+  .brand .site { color: var(--fg-dim); font-size: 14px; }
+
+  .ladder { display: flex; align-items: center; gap: 0; margin-left: 8px; }
+  .rung { display: flex; align-items: center; gap: 9px; padding: 0 14px; position: relative; }
+  .rung .pip { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-faint); flex: none; }
+  .rung .lbl { font: 500 12px/1 var(--mono); letter-spacing: 0.04em; color: var(--fg-faint); }
+  .rung.done .pip { background: var(--fg-dim); }
+  .rung.done .lbl { color: var(--fg-dim); }
+  .rung.active .pip { background: var(--amber); box-shadow: inset 0 0 0 1px rgba(201,130,45,0.6), 0 0 0 4px rgba(232,185,94,0.22); }
+  .rung.active .lbl { color: var(--fg); }
+  .rung + .rung::before { content: ""; position: absolute; left: -1px; top: 50%; width: 2px; height: 2px; border-radius: 50%; background: var(--hairline); }
+
+  .topbar .spacer { flex: 1; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    height: 34px; padding: 0 15px; border-radius: 8px;
+    font: 500 13.5px/1 var(--text); letter-spacing: -0.005em;
+    transition: transform .2s var(--ease), background .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease);
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary { background: var(--amber); color: var(--ink); box-shadow: inset 0 0 0 1px rgba(201,130,45,0.45), 0 8px 18px -10px rgba(201,130,45,0.55); }
+  .btn-primary:hover { background: var(--amber-light); }
+  .btn-secondary { border: 1px solid var(--hairline); color: var(--fg-muted); }
+  .btn-secondary:hover { border-color: var(--fg-dim); color: var(--fg); }
+  .btn-quiet { color: var(--fg-dim); padding: 0 8px; }
+  .btn-quiet:hover { color: var(--fg); }
+  .btn .arr { color: var(--ink); opacity: .65; }
+
+  /* ---------- middle ---------- */
+  .middle { display: grid; grid-template-columns: var(--conv-w) 1fr; min-height: 0; }
+
+  /* ---------- conversation ---------- */
+  .conv { display: flex; flex-direction: column; min-height: 0; background: var(--bg); border-right: 1px solid var(--hairline-soft); }
+  .conv-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 12px; }
+  .conv-head .who { display: flex; align-items: center; gap: 8px; }
+  .conv-head .who .s { width: 13px; height: 13px; }
+  .conv-thread {
+    flex: 1; min-height: 0; overflow-y: auto;
+    padding: 4px 20px 18px; display: flex; flex-direction: column; gap: 18px;
+    scrollbar-width: thin; scrollbar-color: var(--hairline) transparent;
+  }
+  .conv-thread::-webkit-scrollbar { width: 8px; }
+  .conv-thread::-webkit-scrollbar-thumb { background: var(--hairline-soft); border-radius: 8px; }
+
+  .msg { display: flex; flex-direction: column; gap: 6px; max-width: 100%; }
+  .msg .lead { font: 400 16.5px/1.45 var(--text); color: var(--fg); letter-spacing: -0.01em; }
+  .msg p { margin: 0; color: var(--fg-muted); font-size: 14.5px; line-height: 1.5; }
+  .msg .star { color: var(--amber-deep); }
+  .msg.user { align-items: flex-end; }
+  .msg.user .bubble {
+    background: var(--surface); border: 1px solid var(--hairline-soft);
+    color: var(--fg); padding: 9px 13px; border-radius: 13px 13px 4px 13px;
+    font-size: 14.5px; max-width: 86%; box-shadow: 0 1px 2px rgba(26,31,56,0.04);
+  }
+
+  .plan {
+    border: 1px solid var(--hairline-soft); border-radius: 13px;
+    background: linear-gradient(180deg, rgba(201,130,45,0.07), var(--surface) 70%);
+    padding: 13px 14px; display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 1px 2px rgba(26,31,56,0.04);
+  }
+  .plan .ph { display: flex; align-items: center; gap: 8px; }
+  .plan .ph .tag { font: 500 10px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--amber-deep); }
+  .plan .steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 7px; }
+  .plan .steps li { display: flex; gap: 9px; align-items: baseline; font-size: 14px; color: var(--fg-muted); }
+  .plan .steps li .b { color: var(--amber-deep); font-family: var(--mono); font-size: 11px; transform: translateY(-1px); }
+  .plan .status { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--success); }
+  .plan .status .check { width: 15px; height: 15px; }
+  .plan .acts { display: flex; gap: 6px; padding-top: 2px; }
+  .plan .acts .mini { font: 500 12.5px/1 var(--text); padding: 7px 12px; border-radius: 7px; border: 1px solid var(--hairline); color: var(--fg-muted); }
+  .plan .acts .mini:hover { border-color: var(--fg-dim); color: var(--fg); }
+
+  .seed {
+    display: inline-flex; align-items: center; gap: 8px; align-self: flex-start;
+    font: 500 11.5px/1 var(--mono); letter-spacing: 0.02em;
+    color: var(--fg-dim); padding: 5px 9px; border-radius: 7px;
+    border: 1px dashed var(--hairline);
+  }
+  .seed .k { color: var(--fg-faint); }
+  .seed .h { color: var(--amber-deep); }
+
+  .composer { padding: 12px 16px 16px; border-top: 1px solid var(--hairline-soft); }
+  .composer .field {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface); border: 1px solid var(--hairline-soft);
+    border-radius: 12px; padding: 10px 10px 10px 14px;
+    transition: border-color .2s var(--ease), box-shadow .2s var(--ease);
+  }
+  .composer .field:focus-within { border-color: rgba(201,130,45,0.6); box-shadow: 0 0 0 3px rgba(201,130,45,0.14); }
+  .composer input { flex: 1; background: none; border: none; outline: none; color: var(--fg); font: 400 14.5px/1.4 var(--text); }
+  .composer input::placeholder { color: var(--fg-faint); }
+  .composer .send { width: 30px; height: 30px; border-radius: 8px; flex: none; background: var(--amber); color: var(--ink); box-shadow: inset 0 0 0 1px rgba(201,130,45,0.4); display: grid; place-items: center; transition: background .2s var(--ease); }
+  .composer .send:hover { background: var(--amber-light); }
+  .composer .hint { margin: 9px 2px 0; font-size: 11.5px; color: var(--fg-faint); }
+  .composer .hint .mono { color: var(--fg-dim); }
+
+  /* ---------- stage ---------- */
+  .stage {
+    position: relative; min-width: 0; min-height: 0;
+    display: flex; flex-direction: column;
+    background: radial-gradient(ellipse 90% 70% at 70% 26%, #efe7d6 0%, var(--canvas) 60%, var(--canvas) 100%);
+  }
+  .dust { position: absolute; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+      radial-gradient(1.3px 1.3px at 14% 22%, rgba(26,31,56,0.08), transparent 60%),
+      radial-gradient(1px 1px at 82% 14%, rgba(26,31,56,0.07), transparent 60%),
+      radial-gradient(1.1px 1.1px at 24% 80%, rgba(26,31,56,0.06), transparent 60%),
+      radial-gradient(1px 1px at 70% 82%, rgba(26,31,56,0.06), transparent 60%),
+      radial-gradient(0.8px 0.8px at 92% 60%, rgba(26,31,56,0.06), transparent 60%),
+      radial-gradient(0.8px 0.8px at 8% 56%, rgba(26,31,56,0.05), transparent 60%);
+  }
+  .stage-head { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 14px 22px 12px; }
+  .stage-head .left { display: flex; align-items: center; gap: 12px; }
+  .stage-head .vbadge { font: 600 11px/1 var(--mono); letter-spacing: 0.06em; color: var(--amber-deep); background: rgba(232,185,94,0.16); box-shadow: inset 0 0 0 1px rgba(201,130,45,0.4); padding: 4px 7px; border-radius: 5px; }
+  .stage-tools { display: flex; align-items: center; gap: 14px; }
+  .vtoggle { display: inline-flex; background: var(--surface); border: 1px solid var(--hairline-soft); border-radius: 8px; padding: 3px; gap: 2px; }
+  .vtoggle button { width: 32px; height: 26px; border-radius: 6px; display: grid; place-items: center; color: var(--fg-dim); transition: background .15s var(--ease), color .15s var(--ease); }
+  .vtoggle button.on { background: #ece4d2; color: var(--fg); }
+  .vtoggle button:hover { color: var(--fg); }
+  .stage-tools .open { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--fg-dim); }
+  .stage-tools .open:hover { color: var(--fg); }
+
+  .stage-body { position: relative; z-index: 1; flex: 1; min-height: 0; display: flex; justify-content: center; padding: 6px 22px 22px; }
+  .artboard {
+    width: 100%; max-width: 980px; height: 100%;
+    border-radius: 14px; overflow: hidden;
+    background: var(--paper, #f3eee4);
+    box-shadow: 0 22px 60px -22px rgba(26,31,56,0.32), 0 0 0 1px rgba(26,31,56,0.06);
+    transition: max-width .5s var(--ease);
+  }
+  .artboard.mobile { max-width: 392px; }
+  .frame-scroll { height: 100%; overflow-y: auto; scrollbar-width: thin; }
+  .frame-scroll::-webkit-scrollbar { width: 9px; }
+  .frame-scroll::-webkit-scrollbar-thumb { background: rgba(27,26,23,0.18); border-radius: 9px; }
+
+  .vswitch {
+    position: absolute; z-index: 2; left: 50%; bottom: 30px; transform: translateX(-50%);
+    display: flex; gap: 8px; padding: 7px; border-radius: 12px;
+    background: rgba(255,253,248,0.88); backdrop-filter: blur(8px);
+    border: 1px solid var(--hairline-soft); box-shadow: 0 10px 30px -10px rgba(26,31,56,0.28);
+  }
+  .vswitch .v { display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 8px; border-radius: 8px; color: var(--fg-dim); transition: color .15s var(--ease), background .15s var(--ease); }
+  .vswitch .v .k { width: 18px; height: 18px; border-radius: 5px; background: #ece4d2; display: grid; place-items: center; font: 600 10px/1 var(--mono); color: var(--fg-dim); }
+  .vswitch .v .t { font-size: 12.5px; }
+  .vswitch .v:hover { color: var(--fg); }
+  .vswitch .v.on { color: var(--fg); }
+  .vswitch .v.on .k { background: var(--amber); color: var(--ink); box-shadow: inset 0 0 0 1px rgba(201,130,45,0.5), 0 0 0 3px rgba(232,185,94,0.22); }
+
+  /* ---------- rail ---------- */
+  .rail {
+    display: flex; align-items: center; gap: 26px;
+    padding: 0 22px; background: var(--bg);
+    border-top: 1px solid var(--hairline-soft);
+    font: 500 12px/1 var(--mono); letter-spacing: 0.02em; color: var(--fg-dim);
+  }
+  .rail .item { display: flex; align-items: center; gap: 9px; }
+  .rail .item .ic { color: var(--fg-faint); }
+  .rail .swatches { display: inline-flex; gap: 4px; }
+  .rail .swatches i { width: 13px; height: 13px; border-radius: 4px; display: block; box-shadow: inset 0 0 0 1px rgba(26,31,56,0.08); }
+  .rail .item b { color: var(--fg-muted); font-weight: 500; }
+  .rail .item .amber { color: var(--amber-deep); }
+  .rail .spacer { flex: 1; }
+  .rail .clock { color: var(--fg-faint); }
+
+  /* ===================== ARTBOARD: client redesign (acme) — theme-independent ===================== */
+  .acme { --paper:#f3eee4; --ink:#1b1a17; --ink-soft:#5b554a; --line:rgba(27,26,23,0.12); --terra:#c2562f; --terra-deep:#9c3f1f; --band:#16140f;
+    background: var(--paper); color: var(--ink); font: 400 16px/1.6 "SF Pro Text", Inter, system-ui, sans-serif; }
+  .acme ::selection { background: var(--terra); color: #fff; }
+  .acme .nav { display: flex; align-items: center; justify-content: space-between; padding: 22px 40px; }
+  .acme .nav .logo { font: 600 19px/1 "SF Pro Display", Inter, sans-serif; letter-spacing: -0.02em; }
+  .acme .nav .logo .m { color: var(--terra); }
+  .acme .nav ul { display: flex; gap: 26px; list-style: none; margin: 0; padding: 0; font-size: 14.5px; color: var(--ink-soft); }
+  .acme .nav .cta { font-size: 14px; font-weight: 500; color: var(--paper); background: var(--ink); padding: 9px 16px; border-radius: 8px; }
+  .acme .hero { padding: 40px 40px 56px; display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 40px; align-items: center; }
+  .acme .hero .ek { font: 600 12px/1 "SF Mono", ui-monospace, monospace; letter-spacing: 0.16em; text-transform: uppercase; color: var(--terra); }
+  .acme .hero h1 { font: 600 clamp(40px, 5.4vw, 68px)/0.98 "SF Pro Display", Inter, sans-serif; letter-spacing: -0.035em; margin: 16px 0 18px; text-wrap: balance; }
+  .acme .hero p { font-size: 18px; color: var(--ink-soft); max-width: 38ch; margin: 0 0 26px; }
+  .acme .hero .row { display: flex; gap: 12px; align-items: center; }
+  .acme .hero .b1 { background: var(--terra); color: #fff; font-weight: 500; padding: 13px 22px; border-radius: 10px; font-size: 15px; }
+  .acme .hero .b2 { color: var(--ink); font-weight: 500; padding: 13px 8px; font-size: 15px; }
+  .acme .hero .b2 .a { color: var(--terra); }
+  .acme .viz { border-radius: 16px; overflow: hidden; aspect-ratio: 4/3.4; box-shadow: 0 20px 50px -22px rgba(27,26,23,0.5); }
+  .acme .viz svg { display: block; width: 100%; height: 100%; }
+  .acme .ticker { background: var(--band); color: var(--paper); overflow: hidden; }
+  .acme .ticker .inner { display: flex; align-items: center; gap: 40px; padding: 14px 40px; white-space: nowrap; }
+  .acme .ticker .lab { font: 600 11px/1 "SF Mono", ui-monospace, monospace; letter-spacing: 0.16em; color: var(--terra); display: inline-flex; align-items: center; gap: 8px; flex: none; }
+  .acme .ticker .lab .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--terra); box-shadow: 0 0 0 0 rgba(194,86,47,0.6); animation: pulse 2.4s var(--ease) infinite; }
+  .acme .ticker .feed { display: flex; gap: 34px; font: 500 13.5px/1 "SF Mono", ui-monospace, monospace; color: rgba(245,240,230,0.82); }
+  .acme .ticker .feed span .n { color: #fff; }
+  .acme .ticker .feed span .up { color: #8fce9a; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(194,86,47,0.5);} 70%{box-shadow:0 0 0 9px rgba(194,86,47,0);} 100%{box-shadow:0 0 0 0 rgba(194,86,47,0);} }
+  .acme .proof { padding: 40px; }
+  .acme .proof .ek { font: 600 12px/1 "SF Mono", ui-monospace, monospace; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 22px; }
+  .acme .grid3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .acme .grid3 .cell { background: var(--paper); padding: 26px 24px; }
+  .acme .grid3 .cell h3 { font: 600 22px/1.1 "SF Pro Display", Inter, sans-serif; letter-spacing: -0.02em; margin: 0 0 8px; }
+  .acme .grid3 .cell p { font-size: 14px; color: var(--ink-soft); margin: 0; }
+  @media (prefers-reduced-motion: reduce) { .acme .ticker .lab .pulse { animation: none; } .artboard { transition: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ TOPBAR ============ -->
+  <header class="topbar">
+    <div class="brand">
+      <svg class="star" viewBox="0 0 24 24" aria-hidden="true">
+        <g fill="#1a1f38">
+          <rect x="10" y="2" width="4" height="4"/><rect x="10" y="6" width="4" height="4" opacity=".55"/>
+          <rect x="10" y="18" width="4" height="4"/><rect x="10" y="14" width="4" height="4" opacity=".55"/>
+          <rect x="2" y="10" width="4" height="4"/><rect x="6" y="10" width="4" height="4" opacity=".55"/>
+          <rect x="18" y="10" width="4" height="4"/><rect x="14" y="10" width="4" height="4" opacity=".55"/>
+        </g>
+        <rect x="9" y="9" width="6" height="6" fill="#e8b95e"/>
+      </svg>
+      <span class="name"><b>acme.com</b></span>
+      <span class="dot">·</span>
+      <span class="site">redesign</span>
+    </div>
+
+    <nav class="ladder" aria-label="progress">
+      <div class="rung active"><span class="pip"></span><span class="lbl">explore</span></div>
+      <div class="rung"><span class="pip"></span><span class="lbl">templates</span></div>
+      <div class="rung"><span class="pip"></span><span class="lbl">deploy</span></div>
+      <div class="rung"><span class="pip"></span><span class="lbl">rollout</span></div>
+    </nav>
+
+    <div class="spacer"></div>
+    <button class="btn btn-quiet">Restart</button>
+    <button class="btn btn-primary">Put it live <span class="arr">→</span></button>
+  </header>
+
+  <!-- ============ MIDDLE ============ -->
+  <div class="middle">
+
+    <!-- ---- conversation ---- -->
+    <section class="conv" aria-label="conversation">
+      <div class="conv-head">
+        <div class="who">
+          <svg class="s" viewBox="0 0 24 24" aria-hidden="true"><g fill="#1a1f38"><rect x="10" y="2" width="4" height="4"/><rect x="10" y="18" width="4" height="4"/><rect x="2" y="10" width="4" height="4"/><rect x="18" y="10" width="4" height="4"/></g><rect x="9" y="9" width="6" height="6" fill="#c9822d"/></svg>
+          <span class="eyebrow">stardust</span>
+        </div>
+        <button class="btn-quiet" style="font-size:12.5px">History</button>
+      </div>
+
+      <div class="conv-thread">
+        <div class="msg">
+          <div class="lead"><span class="star">✦</span> Done. My pick is <b>B</b> — it leans into a trait you already have but underuse.</div>
+          <p>Your live availability ticker was buried in the footer. B brings it up top as a signal of how alive the shop is. A and C are open too — tell me what to change, or pick another.</p>
+        </div>
+
+        <div class="msg user"><div class="bubble">bigger hero, warmer</div></div>
+
+        <div class="msg">
+          <div class="plan">
+            <div class="ph"><span class="tag">plan</span></div>
+            <ul class="steps">
+              <li><span class="b">01</span><span>Scale the hero display up one step on the type scale.</span></li>
+              <li><span class="b">02</span><span>Shift the accent warmer — terracotta over the cooler clay.</span></li>
+            </ul>
+            <div class="status">
+              <svg class="check" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7.5" fill="none" stroke="#5f9669" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Applied · re-rendered both viewports
+            </div>
+            <div class="acts">
+              <button class="mini">Undo</button>
+              <button class="mini">Keep</button>
+            </div>
+          </div>
+          <div class="seed"><span class="k">seed</span> <span class="h">a3f7c9</span> · md5(acme · 06-25)</div>
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="field">
+          <input type="text" placeholder="tell me a change…" aria-label="message stardust" />
+          <button class="send" aria-label="send">
+            <svg width="15" height="15" viewBox="0 0 16 16"><path d="M2 8h10M8 4l4 4-4 4" fill="none" stroke="#0a1024" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div class="hint">Try <span class="mono">"quieter nav"</span>, <span class="mono">"add a pricing band"</span>, or <span class="mono">"more editorial"</span>.</div>
+      </div>
+    </section>
+
+    <!-- ---- stage ---- -->
+    <section class="stage" aria-label="prototype preview">
+      <div class="dust"></div>
+
+      <div class="stage-head">
+        <div class="left">
+          <span class="eyebrow">prototype</span>
+          <span class="vbadge">VARIANT B</span>
+        </div>
+        <div class="stage-tools">
+          <div class="vtoggle" role="group" aria-label="viewport">
+            <button class="on" id="vDesk" aria-label="desktop" title="Desktop">
+              <svg width="16" height="16" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="9" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6 14h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+            </button>
+            <button id="vMob" aria-label="mobile" title="Mobile">
+              <svg width="16" height="16" viewBox="0 0 16 16"><rect x="4.5" y="1.5" width="7" height="13" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M7 12.5h2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+          <button class="open">Open in tab
+            <svg width="13" height="13" viewBox="0 0 16 16"><path d="M6 3H3.5v9.5H13V10M9.5 3H13v3.5M13 3L7.5 8.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="stage-body">
+        <div class="artboard" id="artboard">
+          <div class="frame-scroll">
+            <!-- ====== client redesign preview (acme) ====== -->
+            <div class="acme">
+              <nav class="nav">
+                <div class="logo">acme<span class="m">.</span></div>
+                <ul><li>Tools</li><li>Workshop</li><li>Stories</li><li>Pricing</li></ul>
+                <a class="cta">Start building</a>
+              </nav>
+
+              <section class="hero">
+                <div>
+                  <div class="ek">tools for makers</div>
+                  <h1>Build things that outlive the trend.</h1>
+                  <p>Precision tools, shared openly, made to be handed down. No subscriptions to the basics.</p>
+                  <div class="row">
+                    <a class="b1">Start building</a>
+                    <a class="b2">See the workshop <span class="a">→</span></a>
+                  </div>
+                </div>
+                <div class="viz">
+                  <svg viewBox="0 0 400 340" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Hand plane and chisels on a workbench, warm low light">
+                    <defs>
+                      <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a1d14"/><stop offset="1" stop-color="#12100c"/></linearGradient>
+                    </defs>
+                    <rect width="400" height="340" fill="url(#bg)"/>
+                    <rect x="0" y="232" width="400" height="108" fill="#3a2a1c"/>
+                    <rect x="0" y="232" width="400" height="6" fill="#4a3623"/>
+                    <g opacity="0.5" stroke="#1c140d" stroke-width="1"><line x1="0" y1="260" x2="400" y2="260"/><line x1="0" y1="292" x2="400" y2="292"/></g>
+                    <g>
+                      <rect x="96" y="186" width="150" height="46" rx="6" fill="#c2562f"/>
+                      <rect x="96" y="186" width="150" height="12" rx="6" fill="#d9693c"/>
+                      <rect x="150" y="150" width="20" height="44" rx="4" fill="#7a4a22"/>
+                      <rect x="206" y="160" width="30" height="34" rx="4" fill="#e8b95e"/>
+                      <polygon points="120,232 138,232 132,196 126,196" fill="#cdd2da"/>
+                    </g>
+                    <g>
+                      <rect x="276" y="150" width="12" height="82" rx="3" fill="#9c6b3a"/>
+                      <rect x="276" y="150" width="12" height="22" rx="3" fill="#c9d0da"/>
+                      <rect x="298" y="166" width="12" height="66" rx="3" fill="#9c6b3a"/>
+                      <rect x="298" y="166" width="12" height="18" rx="3" fill="#c9d0da"/>
+                      <rect x="320" y="158" width="12" height="74" rx="3" fill="#9c6b3a"/>
+                      <rect x="320" y="158" width="12" height="20" rx="3" fill="#c9d0da"/>
+                    </g>
+                    <g fill="none" stroke="#d9a066" stroke-width="2.4" opacity="0.85" stroke-linecap="round">
+                      <path d="M60 224 q14 -14 30 -4 q-10 10 -30 4"/>
+                      <path d="M44 230 q18 -10 34 0 q-14 8 -34 0"/>
+                    </g>
+                    <circle cx="300" cy="70" r="120" fill="#e8b95e" opacity="0.10"/>
+                  </svg>
+                </div>
+              </section>
+
+              <div class="ticker">
+                <div class="inner">
+                  <span class="lab"><span class="pulse"></span>live · workshop</span>
+                  <div class="feed">
+                    <span><span class="n">38</span> tools in stock</span>
+                    <span>next batch ships <span class="n">Fri</span></span>
+                    <span>open orders <span class="n">12</span> <span class="up">▲</span></span>
+                    <span>makers online <span class="n">204</span></span>
+                  </div>
+                </div>
+              </div>
+
+              <section class="proof">
+                <div class="ek">why acme</div>
+                <div class="grid3">
+                  <div class="cell"><h3>Repairable</h3><p>Every part numbered, every part orderable. Forever.</p></div>
+                  <div class="cell"><h3>Open specs</h3><p>The drawings ship with the tool. Build your own jigs.</p></div>
+                  <div class="cell"><h3>Made to last</h3><p>Hardened steel, oiled ash. A tool you hand down.</p></div>
+                </div>
+              </section>
+            </div>
+            <!-- ====== /client preview ====== -->
+          </div>
+        </div>
+
+        <div class="vswitch" role="group" aria-label="variant">
+          <button class="v"><span class="k">A</span><span class="t">faithful</span></button>
+          <button class="v on"><span class="k">B</span><span class="t">live ticker</span></button>
+          <button class="v"><span class="k">C</span><span class="t">cinematic</span></button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============ RAIL ============ -->
+  <footer class="rail">
+    <div class="item"><span class="ic">◐</span> palette
+      <span class="swatches"><i style="background:#f3eee4"></i><i style="background:#1b1a17"></i><i style="background:#c2562f"></i><i style="background:#16140f"></i></span>
+    </div>
+    <div class="item"><span class="amber">✦</span> signature <b>warm stat-ticker</b></div>
+    <div class="item"><span class="ic">▦</span> pages <b>1</b></div>
+    <div class="spacer"></div>
+    <div class="item clock">⏱ iterated hero · just now</div>
+  </footer>
+
+</div>
+
+<script>
+  const art = document.getElementById('artboard');
+  const d = document.getElementById('vDesk'), m = document.getElementById('vMob');
+  d.addEventListener('click', () => { art.classList.remove('mobile'); d.classList.add('on'); m.classList.remove('on'); });
+  m.addEventListener('click', () => { art.classList.add('mobile'); m.classList.add('on'); d.classList.remove('on'); });
+  document.querySelectorAll('.vswitch .v').forEach(v => v.addEventListener('click', () => {
+    document.querySelectorAll('.vswitch .v').forEach(x => x.classList.remove('on'));
+    v.classList.add('on');
+  }));
+</script>
+</body>
+</html>

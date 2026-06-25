@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>stardust · rollout</title>
+<link rel="stylesheet" href="app.css" />
+<style>
+  .roll { padding: 22px; max-width: 880px; }
+  /* coverage */
+  .cov { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+  .cov .t { font: 600 15px/1 var(--display); letter-spacing: -0.01em; color: var(--fg); flex: none; }
+  .cov .bar { flex: 1; height: 7px; border-radius: 7px; background: var(--sunken); overflow: hidden; }
+  .cov .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--success), #8fce9a); transition: width 1s var(--ease); }
+  .cov .c { font: 600 13px/1 var(--mono); color: var(--fg-dim); flex: none; } .cov .c b { color: var(--amber-deep); }
+
+  .sec-label { font: 500 11px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-dim); margin: 6px 2px 10px; }
+  /* status pills */
+  .sp { display: inline-flex; align-items: center; gap: 6px; font: 600 11px/1 var(--mono); white-space: nowrap; }
+  .sp i { width: 7px; height: 7px; border-radius: 50%; display: block; flex: none; }
+  .s-live { color: var(--success); } .s-live i { background: var(--success); }
+  .s-template { color: var(--amber-deep); } .s-template i { background: var(--amber); box-shadow: inset 0 0 0 1px rgba(201,130,45,.6); }
+  .s-pending { color: var(--amber-deep); } .s-pending i { background: var(--amber-deep); }
+  .s-queued { color: var(--fg-dim); } .s-queued i { background: var(--fg-faint); }
+  .s-review { color: var(--danger); } .s-review i { background: var(--danger); }
+
+  /* templates list */
+  .tlist { border: 1px solid var(--hairline-soft); border-radius: 14px; overflow: hidden; background: var(--surface); margin-bottom: 22px; }
+  .tli { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--hairline-soft); }
+  .tli:last-child { border-bottom: 0; }
+  .tli .nm { font-size: 14px; color: var(--fg); font-weight: 500; } .tli .nm .u { font: 500 11.5px/1 var(--mono); color: var(--fg-faint); margin-left: 6px; }
+  .tli .meta { font: 500 11px/1 var(--mono); color: var(--fg-faint); }
+
+  /* tree */
+  .tree { border: 1px solid var(--hairline-soft); border-radius: 14px; overflow: hidden; background: var(--surface); }
+  .tnode { border-bottom: 1px solid var(--hairline-soft); } .tnode:last-child { border-bottom: 0; }
+  .tparent { display: flex; align-items: center; gap: 11px; padding: 13px 16px; cursor: pointer; transition: background .12s var(--ease); }
+  .tparent:hover { background: var(--bg); }
+  .tparent .car { width: 14px; height: 14px; flex: none; color: var(--fg-dim); transition: transform .18s var(--ease); }
+  .tnode.open .tparent .car { transform: rotate(90deg); }
+  .tparent .nm { font-size: 14px; color: var(--fg); font-weight: 500; }
+  .tparent .ct { font: 500 12px/1 var(--mono); color: var(--fg-faint); }
+  .tparent .spacer { flex: 1; }
+  .tchildren { display: none; padding: 2px 0 6px; background: var(--bg); }
+  .tnode.open .tchildren { display: block; }
+  .trow { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px; padding: 8px 16px 8px 41px; }
+  .trow .pg { font: 500 13px/1 var(--text); color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trow .pg .u { font-family: var(--mono); font-size: 11.5px; color: var(--fg-faint); }
+  .trow .meta { font: 500 11px/1 var(--mono); color: var(--fg-faint); }
+  .more { padding: 8px 16px 10px 41px; font: 500 12px/1 var(--mono); color: var(--fg-dim); }
+  @media (prefers-reduced-motion: reduce){ .cov .bar i, .tparent .car { transition: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="star" viewBox="0 0 24 24" aria-hidden="true"><g fill="#e8b95e"><rect x="10" y="2" width="4" height="4"/><rect x="10" y="6" width="4" height="4" opacity=".6"/><rect x="10" y="18" width="4" height="4"/><rect x="10" y="14" width="4" height="4" opacity=".6"/><rect x="2" y="10" width="4" height="4"/><rect x="6" y="10" width="4" height="4" opacity=".6"/><rect x="18" y="10" width="4" height="4"/><rect x="14" y="10" width="4" height="4" opacity=".6"/></g><rect x="9" y="9" width="6" height="6" fill="#ffd98a"/></svg>
+      <span class="name"><b>stardust</b></span>
+    </div>
+    <nav class="ladder" aria-label="progress">
+      <div class="rung done"><span class="pip"></span><span class="lbl">prototype</span></div>
+      <div class="rung active"><span class="pip"></span><span class="lbl">deploy</span></div>
+    </nav>
+    <div class="spacer"></div>
+    <button class="btn btn-quiet" data-nav="index.html">Restart</button>
+    <a class="btn btn-primary" href="https://main--uplift-knack-eds--paolomoz.aem.live/" target="_blank" rel="noopener">Open live site <span class="arr">↗</span></a>
+  </header>
+
+  <div class="middle">
+    <section class="conv" aria-label="conversation">
+      <div class="conv-head"><div class="who"><span class="proj"><b>knack.com</b> · redesign</span></div></div>
+      <div class="conv-thread">
+        <div class="msg fade">
+          <div class="lead"><span class="star">✦</span> Live on <b>Edge Delivery</b>. The 7 templates are published.</div>
+          <p>Every page maps to a template. Here's the full site and where each page stands — expand a section to see its pages.</p>
+          <p>Tell me <i>"roll out all solution pages"</i> and I'll render them from the template.</p>
+          <div class="seed"><span class="k">deploy</span> <span class="h">main</span> · uplift-knack-eds</div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="field"><input type="text" placeholder="e.g. roll out all use-case pages…" aria-label="message" /><button class="send" aria-label="send"><svg width="15" height="15" viewBox="0 0 16 16"><path d="M2 8h10M8 4l4 4-4 4" fill="none" stroke="#0a1024" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+        <div class="hint">Expand a section to see page status.</div>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="rollout dashboard">
+      <div class="subheader">
+        <div class="sub-left"><span class="eyebrow">rollout</span><span style="font-size:13px;color:var(--fg-dim)">uplift-knack-eds</span></div>
+        <div class="sub-right"><span style="font:500 12px/1 var(--mono);color:var(--success)">✓ templates live</span></div>
+      </div>
+      <div class="cardbody">
+        <div class="roll">
+          <!-- coverage bar -->
+          <div class="cov fade">
+            <span class="t">Site coverage</span>
+            <span class="bar"><i data-fill="3%"></i></span>
+            <span class="c"><b>9</b> / 284 live</span>
+          </div>
+
+          <!-- templates list -->
+          <div class="sec-label">Templates · 7 archetypes</div>
+          <div class="tlist fade">
+            <div class="tli"><span class="nm">Home <span class="u">/</span></span><span class="sp s-template"><i></i>template</span><span class="meta">live</span></div>
+            <div class="tli"><span class="nm">Solution <span class="u">/solutions/*</span></span><span class="sp s-template"><i></i>template</span><span class="meta">live</span></div>
+            <div class="tli"><span class="nm">Use case <span class="u">/use-cases/*</span></span><span class="sp s-template"><i></i>template</span><span class="meta">live</span></div>
+            <div class="tli"><span class="nm">Integration <span class="u">/integrations/*</span></span><span class="sp s-template"><i></i>template</span><span class="meta">live</span></div>
+            <div class="tli"><span class="nm">Case study <span class="u">/customers/*</span></span><span class="sp s-template"><i></i>template</span><span class="meta">live</span></div>
+            <div class="tli"><span class="nm">Listing <span class="u">/solutions, /integrations</span></span><span class="sp s-template"><i></i>template</span><span class="meta">live</span></div>
+            <div class="tli"><span class="nm">Pricing <span class="u">/pricing</span></span><span class="sp s-template"><i></i>template</span><span class="meta">live</span></div>
+          </div>
+
+          <!-- full site tree -->
+          <div class="sec-label">Site pages · 284</div>
+          <div class="tree">
+            <div class="tnode open">
+              <div class="tparent" data-tree>
+                <svg class="car" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="nm">Solutions</span><span class="ct">60</span><span class="spacer"></span><span class="sp s-pending"><i></i>2 live · 57 queued</span>
+              </div>
+              <div class="tchildren">
+                <div class="trow"><span class="pg">work-orders <span class="u">/solutions/work-orders</span></span><span class="sp s-live"><i></i>live</span><span class="meta">2m ago</span></div>
+                <div class="trow"><span class="pg">inventory <span class="u">/solutions/inventory</span></span><span class="sp s-live"><i></i>live</span><span class="meta">2m ago</span></div>
+                <div class="trow"><span class="pg">asset-tracking <span class="u">/solutions/asset-tracking</span></span><span class="sp s-review"><i></i>review</span><span class="meta">long title</span></div>
+                <div class="trow"><span class="pg">project-management <span class="u">/solutions/project-management</span></span><span class="sp s-queued"><i></i>queued</span><span class="meta">—</span></div>
+                <div class="trow"><span class="pg">financial-management <span class="u">/solutions/financial-management</span></span><span class="sp s-queued"><i></i>queued</span><span class="meta">—</span></div>
+                <div class="trow"><span class="pg">crm <span class="u">/solutions/crm</span></span><span class="sp s-queued"><i></i>queued</span><span class="meta">—</span></div>
+                <div class="more">+ 54 more queued</div>
+              </div>
+            </div>
+
+            <div class="tnode">
+              <div class="tparent" data-tree>
+                <svg class="car" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="nm">Use cases</span><span class="ct">40</span><span class="spacer"></span><span class="sp s-queued"><i></i>queued</span>
+              </div>
+              <div class="tchildren">
+                <div class="trow"><span class="pg">field-service <span class="u">/use-cases/field-service</span></span><span class="sp s-queued"><i></i>queued</span><span class="meta">—</span></div>
+                <div class="trow"><span class="pg">onboarding <span class="u">/use-cases/onboarding</span></span><span class="sp s-queued"><i></i>queued</span><span class="meta">—</span></div>
+                <div class="trow"><span class="pg">approvals <span class="u">/use-cases/approvals</span></span><span class="sp s-queued"><i></i>queued</span><span class="meta">—</span></div>
+                <div class="more">+ 37 more queued</div>
+              </div>
+            </div>
+
+            <div class="tnode">
+              <div class="tparent" data-tree>
+                <svg class="car" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="nm">Integrations</span><span class="ct">90</span><span class="spacer"></span><span class="sp s-queued"><i></i>queued</span>
+              </div>
+              <div class="tchildren">
+                <div class="trow"><span class="pg">salesforce <span class="u">/integrations/salesforce</span></span><span class="sp s-queued"><i></i>queued</span><span class="meta">—</span></div>
+                <div class="trow"><span class="pg">slack <span class="u">/integrations/slack</span></span><span class="sp s-queued"><i></i>queued</span><span class="meta">—</span></div>
+                <div class="more">+ 88 more queued</div>
+              </div>
+            </div>
+
+            <div class="tnode">
+              <div class="tparent" data-tree>
+                <svg class="car" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="nm">Case studies</span><span class="ct">40</span><span class="spacer"></span><span class="sp s-pending"><i></i>12 content-pending</span>
+              </div>
+              <div class="tchildren">
+                <div class="trow"><span class="pg">acme-logistics <span class="u">/customers/acme</span></span><span class="sp s-pending"><i></i>content-pending</span><span class="meta">template ✓</span></div>
+                <div class="trow"><span class="pg">northwind <span class="u">/customers/northwind</span></span><span class="sp s-pending"><i></i>content-pending</span><span class="meta">template ✓</span></div>
+                <div class="more">+ 38 more</div>
+              </div>
+            </div>
+
+            <div class="tnode">
+              <div class="tparent" data-tree>
+                <svg class="car" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="nm">Resources</span><span class="ct">52</span><span class="spacer"></span><span class="sp s-queued"><i></i>queued</span>
+              </div>
+              <div class="tchildren">
+                <div class="trow"><span class="pg">templates-library <span class="u">/templates</span></span><span class="sp s-queued"><i></i>queued</span><span class="meta">—</span></div>
+                <div class="trow"><span class="pg">guides <span class="u">/guides</span></span><span class="sp s-queued"><i></i>queued</span><span class="meta">—</span></div>
+                <div class="more">+ 50 more queued</div>
+              </div>
+            </div>
+
+            <div class="tnode">
+              <div class="tparent" data-tree>
+                <svg class="car" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="nm">Pricing</span><span class="ct">1</span><span class="spacer"></span><span class="sp s-live"><i></i>live</span>
+              </div>
+              <div class="tchildren">
+                <div class="trow"><span class="pg">pricing <span class="u">/pricing</span></span><span class="sp s-live"><i></i>live</span><span class="meta">2m ago</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="rail">
+    <div class="item"><span class="ic">◐</span> palette <span class="swatches"><i style="background:#982a86"></i><i style="background:#ff349a"></i><i style="background:#fa816e"></i><i style="background:#1a181d"></i></span></div>
+    <div class="item"><span class="amber">✦</span> live <b>uplift-knack-eds</b></div>
+    <div class="item"><span class="ic">▦</span> coverage <b>9 / 284</b></div>
+    <div class="spacer"></div>
+    <div class="item clock">⏱ templates published · just now</div>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

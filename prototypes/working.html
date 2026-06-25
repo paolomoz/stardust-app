@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>stardust · working</title>
+<link rel="stylesheet" href="app.css" />
+<style>
+  .tasks { display: flex; flex-direction: column; gap: 7px; }
+  .task { display: flex; align-items: flex-start; gap: 10px; padding: 9px 11px; border-radius: 10px; border: 1px solid var(--hairline-soft); background: var(--surface); }
+  .task .ti { width: 24px; height: 24px; border-radius: 7px; background: var(--sunken); display: grid; place-items: center; flex: none; color: var(--fg-dim); }
+  .task .ti svg { width: 13px; height: 13px; }
+  .task .tx { flex: 1; min-width: 0; }
+  .task .tl { font-size: 13px; color: var(--fg); display: flex; align-items: center; gap: 7px; }
+  .task .cat { font: 600 8.5px/1 var(--mono); letter-spacing: 0.12em; color: var(--fg-faint); border: 1px solid var(--hairline-soft); border-radius: 4px; padding: 2px 4px; }
+  .task .td { font: 500 11px/1.3 var(--mono); color: var(--fg-faint); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .task .st { flex: none; width: 16px; display: grid; place-items: center; margin-top: 4px; }
+  .task.t-extract .ti { color: var(--amber-deep); }
+  .task.t-generate .ti { color: var(--amber-deep); background: rgba(232,185,94,0.16); box-shadow: inset 0 0 0 1px rgba(201,130,45,0.3); }
+  .task.t-validate .ti { color: var(--success); }
+  .task.done .cat { color: var(--fg-dim); }
+  .task.run { box-shadow: 0 1px 2px rgba(26,31,56,0.05); }
+  .task.run .cat { color: var(--amber-deep); border-color: rgba(201,130,45,0.4); }
+  .task.wait { opacity: .6; }
+  .task.wait .ti { background: transparent; box-shadow: inset 0 0 0 1px var(--hairline-soft); }
+  .ok { color: var(--success); font-size: 12px; }
+  .qd { color: var(--fg-faint); font-size: 13px; line-height: 1; }
+  .spin { width: 13px; height: 13px; border: 2px solid var(--sunken); border-top-color: var(--amber-deep); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .work { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 36px 24px; background: radial-gradient(ellipse 70% 60% at 50% 38%, #efe7d6 0%, var(--canvas) 70%); }
+  .work .stage { position: relative; width: 120px; height: 120px; display: grid; place-items: center; margin-bottom: 22px; }
+  .work .ring { position: absolute; inset: 0; border-radius: 50%; border: 2px dashed rgba(201,130,45,0.35); animation: spin 7s linear infinite; }
+  .work .ring2 { position: absolute; inset: 16px; border-radius: 50%; border: 1.5px solid rgba(26,31,56,0.06); border-top-color: rgba(201,130,45,0.5); animation: spin 1.6s linear infinite; }
+  .work .bigstar { width: 46px; height: 46px; animation: breathe 2.2s var(--ease) infinite; }
+  @keyframes breathe { 0%,100% { transform: scale(1); opacity: .92; } 50% { transform: scale(1.07); opacity: 1; } }
+  .work h2 { font: 600 22px/1.2 var(--display); letter-spacing: -0.02em; color: var(--fg); margin: 0 0 6px; }
+  .work .status { font: 500 13px/1 var(--mono); color: var(--amber-deep); height: 14px; }
+  .work .pwrap { width: 320px; max-width: 80%; margin: 18px 0 8px; }
+  .work .pbar { height: 5px; border-radius: 5px; background: var(--sunken); overflow: hidden; }
+  .work .pbar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--amber-deep), var(--amber)); transition: width 4.6s linear; }
+  .work .note { font-size: 12px; color: var(--fg-dim); margin-top: 6px; }
+  .skel { width: 420px; max-width: 90%; margin-top: 28px; display: grid; grid-template-columns: 1.2fr 1fr; gap: 10px; }
+  .sk { border-radius: 10px; background: linear-gradient(100deg, var(--sunken) 30%, var(--surface) 50%, var(--sunken) 70%); background-size: 200% 100%; animation: shimmer 1.5s linear infinite; }
+  .sk.big { grid-row: span 2; height: 120px; }
+  .sk.s { height: 55px; }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .spin, .ring, .ring2, .bigstar { animation: none; }
+    .sk { animation: none; background: var(--sunken); }
+    .work .pbar i { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="star" viewBox="0 0 24 24" aria-hidden="true"><g fill="#e8b95e"><rect x="10" y="2" width="4" height="4"/><rect x="10" y="6" width="4" height="4" opacity=".6"/><rect x="10" y="18" width="4" height="4"/><rect x="10" y="14" width="4" height="4" opacity=".6"/><rect x="2" y="10" width="4" height="4"/><rect x="6" y="10" width="4" height="4" opacity=".6"/><rect x="18" y="10" width="4" height="4"/><rect x="14" y="10" width="4" height="4" opacity=".6"/></g><rect x="9" y="9" width="6" height="6" fill="#ffd98a"/></svg>
+      <span class="name"><b>stardust</b></span>
+    </div>
+    <nav class="ladder" aria-label="progress">
+      <div class="rung active"><span class="pip"></span><span class="lbl">prototype</span></div>
+      <div class="rung"><span class="pip"></span><span class="lbl">deploy</span></div>
+    </nav>
+    <div class="spacer"></div>
+    <button class="btn btn-quiet" data-nav="index.html">Restart</button>
+    <button class="btn btn-primary" data-nav="capturing.html">See snapshot <span class="arr">→</span></button>
+  </header>
+
+  <div class="middle">
+    <section class="conv" aria-label="conversation">
+      <div class="conv-head"><div class="who"><span class="proj"><b>knack.com</b> · redesign</span></div>
+        <span style="font:500 11px/1 var(--mono);color:var(--fg-faint)">working</span>
+      </div>
+      <div class="conv-thread">
+        <div class="msg fade">
+          <div class="lead"><span class="star">✦</span> On it — reading <b>knack.com</b>, learning the brand, and composing directions.</div>
+          <p>This normally takes a few minutes. I'll show the snapshot the moment it's ready.</p>
+        </div>
+        <div class="tasks stagger">
+          <div class="task t-crawl done"><span class="ti"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12" fill="none" stroke="currentColor" stroke-width="1"/></svg></span><div class="tx"><div class="tl"><span class="cat">CRAWL</span> Discovered pages</div><div class="td">sitemap · 24 pages found</div></div><span class="st"><span class="ok">✓</span></span></div>
+          <div class="task t-read done"><span class="ti"><svg viewBox="0 0 16 16"><rect x="3" y="2" width="10" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg></span><div class="tx"><div class="tl"><span class="cat">READ</span> Rendered home + 5 pages</div><div class="td">/ · /pricing · /platform · /security</div></div><span class="st"><span class="ok">✓</span></span></div>
+          <div class="task t-extract run"><span class="ti"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="5.4" r="1.1" fill="currentColor"/><circle cx="5.6" cy="9" r="1.1" fill="currentColor"/><circle cx="10.4" cy="9" r="1.1" fill="currentColor"/></svg></span><div class="tx"><div class="tl"><span class="cat">EXTRACT</span> Extracting brand surface</div><div class="td">palette · type · logo · motifs</div></div><span class="st"><span class="spin"></span></span></div>
+          <div class="task t-analyze run"><span class="ti"><svg viewBox="0 0 16 16"><path d="M3 3h4M3 3v4M13 13h-4M13 13v-4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></span><div class="tx"><div class="tl"><span class="cat">ANALYZE</span> Scanning for tensions</div><div class="td">CTAs · type scale · contrast</div></div><span class="st"><span class="spin"></span></span></div>
+          <div class="task t-generate wait"><span class="ti"><svg viewBox="0 0 16 16"><g fill="currentColor"><rect x="7" y="1" width="2" height="2"/><rect x="7" y="13" width="2" height="2"/><rect x="1" y="7" width="2" height="2"/><rect x="13" y="7" width="2" height="2"/></g><rect x="6" y="6" width="4" height="4" fill="currentColor"/></svg></span><div class="tx"><div class="tl"><span class="cat">GENERATE</span> Composing 3 directions</div><div class="td">A faithful · B magenta · C cinematic</div></div><span class="st"><span class="qd">○</span></span></div>
+          <div class="task t-validate wait"><span class="ti"><svg viewBox="0 0 16 16"><path d="M8 2l5 2v4c0 3-2.2 5-5 6-2.8-1-5-3-5-6V4z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M6 8l1.6 1.6L10.5 6.5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="tx"><div class="tl"><span class="cat">VALIDATE</span> Checking each render</div><div class="td">a11y · responsive · fonts</div></div><span class="st"><span class="qd">○</span></span></div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="field"><input type="text" placeholder="add a note for stardust…" aria-label="message" /><button class="send" aria-label="send"><svg width="15" height="15" viewBox="0 0 16 16"><path d="M2 8h10M8 4l4 4-4 4" fill="none" stroke="#0a1024" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+        <div class="hint">Working — in reality a few minutes. <button class="skip mono" data-nav="capturing.html" style="color:var(--fg-dim)">see snapshot →</button></div>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="working">
+      <div class="subheader">
+        <div class="sub-left"><span class="eyebrow">working</span><span style="font-size:13px;color:var(--fg-dim)">knack.com</span></div>
+        <div class="sub-right"><span class="spin"></span></div>
+      </div>
+      <div class="preview">
+        <div class="work">
+          <div class="stage">
+            <div class="ring"></div>
+            <div class="ring2"></div>
+            <svg class="bigstar" viewBox="0 0 24 24" aria-hidden="true"><g fill="#e8b95e"><rect x="10" y="1" width="4" height="4"/><rect x="10" y="5.5" width="4" height="4" opacity=".55"/><rect x="10" y="19" width="4" height="4"/><rect x="10" y="14.5" width="4" height="4" opacity=".55"/><rect x="1" y="10" width="4" height="4"/><rect x="5.5" y="10" width="4" height="4" opacity=".55"/><rect x="19" y="10" width="4" height="4"/><rect x="14.5" y="10" width="4" height="4" opacity=".55"/></g><rect x="8.5" y="8.5" width="7" height="7" fill="#ffd98a"/></svg>
+          </div>
+          <h2>Building your redesign</h2>
+          <div class="status" id="status">extracting the palette…</div>
+          <div class="pwrap"><div class="pbar"><i data-fill="100%"></i></div></div>
+          <div class="note">reading the brand · proposing directions · validating renders</div>
+          <div class="skel">
+            <div class="sk big"></div>
+            <div class="sk s"></div>
+            <div class="sk s"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="rail">
+    <div class="item"><span class="ic">◐</span> <span class="spin" style="width:11px;height:11px"></span> reading brand surface…</div>
+    <div class="item"><span class="amber">✦</span> uplift · knack.com</div>
+    <div class="spacer"></div>
+    <div class="item clock">⏱ ~ a few minutes · click to continue</div>
+  </footer>
+</div>
+
+<script src="app.js"></script>
+<script>
+  (function(){
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const s = ["extracting the palette…","measuring the type scale…","mapping the page structure…","finding tensions…","composing 3 directions…","applying the fixes…","validating renders…"];
+    let i = 0; const el = document.getElementById('status');
+    setInterval(() => { i = (i + 1) % s.length; if (el) el.textContent = s[i]; }, 820);
+  })();
+</script>
+</body>
+</html>

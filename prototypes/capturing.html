@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>stardust · brand review</title>
+<link rel="stylesheet" href="app.css" />
+<style>
+  .auditbtn { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border-radius: 8px; font: 600 12.5px/1 var(--text); color: var(--ink); background: var(--amber); box-shadow: inset 0 0 0 1px rgba(201,130,45,0.4); transition: background .15s var(--ease); }
+  .auditbtn:hover { background: var(--amber-light); }
+  .auditbtn svg { width: 13px; height: 13px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="star" viewBox="0 0 24 24" aria-hidden="true"><g fill="#e8b95e"><rect x="10" y="2" width="4" height="4"/><rect x="10" y="6" width="4" height="4" opacity=".6"/><rect x="10" y="18" width="4" height="4"/><rect x="10" y="14" width="4" height="4" opacity=".6"/><rect x="2" y="10" width="4" height="4"/><rect x="6" y="10" width="4" height="4" opacity=".6"/><rect x="18" y="10" width="4" height="4"/><rect x="14" y="10" width="4" height="4" opacity=".6"/></g><rect x="9" y="9" width="6" height="6" fill="#ffd98a"/></svg>
+      <span class="name"><b>stardust</b></span>
+    </div>
+    <nav class="ladder" aria-label="progress">
+      <div class="rung active"><span class="pip"></span><span class="lbl">prototype</span></div>
+      <div class="rung"><span class="pip"></span><span class="lbl">deploy</span></div>
+    </nav>
+    <div class="spacer"></div>
+    <button class="btn btn-quiet" data-nav="working.html">← Back</button>
+    <button class="btn btn-primary" data-nav="variants.html">See directions <span class="arr">→</span></button>
+  </header>
+
+  <div class="middle">
+    <section class="conv" aria-label="conversation">
+      <div class="conv-head"><div class="who"><span class="proj"><b>knack.com</b> · redesign</span></div></div>
+      <div class="conv-thread">
+        <div class="msg fade">
+          <div class="lead"><span class="star">✦</span> Here's your brand surface, captured from a live render.</div>
+          <p>Magenta leads the palette but barely shows on screen, the type scale is flat, and there are 21 different CTA labels. A solid product, under-showing itself.</p>
+          <p>Open the full <b>audit</b> for the scorecard and findings, or move on to directions.</p>
+          <div class="seed"><span class="k">seed</span> <span class="h">a3f7c9</span> · md5(knack·06-25)</div>
+        </div>
+        <div class="msg fade">
+          <div class="plan">
+            <div class="tag">3 tensions</div>
+            <ul class="steps">
+              <li><span class="b">01</span><span>21 CTA labels — no single canonical action.</span></li>
+              <li><span class="b">02</span><span>Flat type scale (48→44→40→32) — weak hierarchy.</span></li>
+              <li><span class="b">03</span><span>Magenta ≈ 0.9% of painted pixels.</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="field"><input type="text" placeholder="ask about the brand…" aria-label="message" /><button class="send" aria-label="send"><svg width="15" height="15" viewBox="0 0 16 16"><path d="M2 8h10M8 4l4 4-4 4" fill="none" stroke="#0a1024" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+        <div class="hint">Try <span class="mono">"run the audit"</span> or <span class="mono">"see directions"</span>.</div>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="brand review">
+      <div class="subheader">
+        <div class="sub-left"><span class="eyebrow">brand review</span><span style="font-size:13px;color:var(--fg-dim)">knack.com</span></div>
+        <div class="sub-right">
+          <button class="auditbtn" data-nav="audit.html"><svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg> Run audit</button>
+          <a class="open" href="assets/knack-review/brand-review.html" target="_blank" rel="noopener">Open in tab <svg width="13" height="13" viewBox="0 0 16 16"><path d="M6 3H3.5v9.5H13V10M9.5 3H13v3.5M13 3L7.5 8.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+        </div>
+      </div>
+      <div class="preview">
+        <iframe src="assets/knack-review/brand-review.html" title="Knack brand review" loading="eager"></iframe>
+      </div>
+    </section>
+  </div>
+
+  <footer class="rail">
+    <div class="item"><span class="ic">◐</span> palette <span class="swatches"><i style="background:#982a86"></i><i style="background:#ff349a"></i><i style="background:#fa816e"></i><i style="background:#1a181d"></i></span></div>
+    <div class="item"><span class="amber">✦</span> brand surface captured</div>
+    <div class="item"><span class="ic">▦</span> tensions <b>5</b></div>
+    <div class="spacer"></div>
+    <div class="item clock">⏱ 7 pages · captured</div>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

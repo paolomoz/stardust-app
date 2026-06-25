@@ -1,0 +1,143 @@
+{
+  "_meta": {
+    "project": "stardust web app",
+    "register": "brand",
+    "source": "stardust brand identity guide (committed identity — identity-preservation)",
+    "northStar": "a quiet, dark, crafted instrument; Ink ground, a single Amber signal, restraint as identity"
+  },
+  "color": {
+    "ground": {
+      "ink": "#0A1024",
+      "ink-deep": "#060A14",
+      "ink-soft": "#141B3A",
+      "ink-line": "#1A2450"
+    },
+    "signal": {
+      "amber": "#E8B95E",
+      "amber-light": "#FFD98A",
+      "amber-deep": "#C9822D"
+    },
+    "light": {
+      "dust": "#F5F0E6",
+      "cream": "#F6EFE2",
+      "deep-ink": "#1A1F38"
+    },
+    "fg-on-ink": {
+      "fg": "rgba(245,240,230,0.92)",
+      "fg-muted": "rgba(245,240,230,0.72)",
+      "fg-dim": "rgba(245,240,230,0.50)",
+      "fg-faint": "rgba(245,240,230,0.30)",
+      "hairline": "rgba(245,240,230,0.15)",
+      "hairline-soft": "rgba(245,240,230,0.08)"
+    },
+    "state": {
+      "danger": "#FF6B6B",
+      "success": "#7FB98A"
+    },
+    "day": {
+      "_note": "Selected app theme — day mode. Deep-ink header band over a light workspace, preview floats as a rounded card on a desk ground. Amber rule on light: bright amber #E8B95E signals (fills/jewels), amber-deep #C9822D speaks (amber-as-text), deep-ink #1A1F38 structures.",
+      "header": "#1A1F38",
+      "bg": "#F5F0E6",
+      "surface": "#FFFDF8",
+      "sunken": "#ECE4D2",
+      "desk": "#E8E1D2",
+      "canvas": "#E6DDCA",
+      "paper": "#F3EEE4",
+      "fg": "rgba(26,31,56,0.95)",
+      "fg-muted": "rgba(26,31,56,0.72)",
+      "fg-dim": "rgba(26,31,56,0.52)",
+      "fg-faint": "rgba(26,31,56,0.30)",
+      "hairline": "rgba(26,31,56,0.14)",
+      "hairline-soft": "rgba(26,31,56,0.08)",
+      "on-dark": "rgba(245,240,230,0.94)",
+      "on-dark-dim": "rgba(245,240,230,0.52)",
+      "on-dark-faint": "rgba(245,240,230,0.28)",
+      "on-dark-line": "rgba(245,240,230,0.14)",
+      "success": "#5F9669"
+    }
+  },
+  "selectedCombination": {
+    "_note": "Locked app shell after iteration (2026-06-25).",
+    "theme": "day",
+    "header": "deep-ink band (#1A1F38), amber star, light brand text",
+    "chat": "320px conversation spine, left, flush",
+    "preview": "floating rounded card (radius 14, margin 12) on desk ground; subheader toolbar inside the card; artifact full-bleed within",
+    "ladder": "2 phases — prototype (platform-agnostic design) · deploy (AEM deploy + rollout)",
+    "footer": "mono rail full-width"
+  },
+  "typography": {
+    "families": {
+      "display": "SF Pro Display, Inter, system-ui, sans-serif",
+      "text": "SF Pro Text, Inter, system-ui, sans-serif",
+      "mono": "SF Mono, JetBrains Mono, ui-monospace, monospace"
+    },
+    "scaleRatio": 1.25,
+    "displayLetterSpacing": "-0.02em",
+    "displayWeightCeiling": 600,
+    "scale": {
+      "display-hero": "clamp(48px, 8vw, 96px)",
+      "display-xl": "40px",
+      "display-l": "28px",
+      "display-m": "20px",
+      "body-lg": "17px",
+      "body": "15px",
+      "body-sm": "13px",
+      "mono": "13px",
+      "eyebrow": "11px"
+    },
+    "body": { "size": "15px", "lineHeight": 1.55, "weight": 400, "measure": "62ch", "align": "left" },
+    "eyebrow": { "case": "uppercase", "color": "amber", "letterSpacing": "0.16em", "family": "mono" }
+  },
+  "radius": {
+    "tile-sm": "4px",
+    "tile": "6px",
+    "control": "8px",
+    "card": "14px",
+    "surface": "18px",
+    "pill": "999px"
+  },
+  "spacing": [4, 8, 12, 16, 24, 32, 48, 64, 96],
+  "motion": {
+    "easing": "cubic-bezier(0.16, 1, 0.3, 1)",
+    "enterDuration": "560ms",
+    "stagger": "80ms",
+    "reducedMotion": "required — static dust, held grounds, instant or crossfade reveals",
+    "bans": ["bounce", "elastic", "spring", "fade-on-scroll-every-section"]
+  },
+  "shell": {
+    "regions": ["TopBar+Ladder", "Conversation (spine, minmax 360-440px)", "StagePanel (flex)", "context Rail"],
+    "rule": "shell is constant across rungs; only StagePanel content changes"
+  },
+  "components": [
+    "TopBar+Ladder", "Conversation thread", "Composer", "StagePanel", "Eyebrow",
+    "SeedChip", "Button(primary/secondary/quiet)", "PaletteSwatch", "VariantCard(3-up)",
+    "PreviewFrame+ViewportToggle", "PageGrid/CoverageLedger", "StatusPill", "ProgressBar",
+    "StarMark", "DustField"
+  ],
+  "signatures": [
+    "four-point star built from squares (mark + thinking indicator + empty-state watermark)",
+    "faint dust field on Ink grounds (never behind reading copy)",
+    "show the seed — SeedChip / provenance md5(brand·date)",
+    "mono amber eyebrows — one per surface, role labels not section scaffolding",
+    "ink->deep radial-gradient grounds for hero/feature moments",
+    "amber ::selection (amber bg, ink text)"
+  ],
+  "statusPalette": {
+    "extracted": "fg-dim",
+    "directed": "fg-muted",
+    "prototyped": "amber-light",
+    "approved": "amber",
+    "deployed": "success",
+    "stale": "danger"
+  },
+  "bans": [
+    "cyan/purple SaaS gradients",
+    "gradient text",
+    "amber as large fill or more than one amber signal per view",
+    "glassmorphism as decoration",
+    "mono for prose",
+    "eyebrow above every section",
+    "feature-dense dashboard look",
+    "hype / mystical AI copy"
+  ]
+}

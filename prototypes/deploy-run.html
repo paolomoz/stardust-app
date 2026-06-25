@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>stardust · deploying</title>
+<link rel="stylesheet" href="app.css" />
+<style>
+  .run { padding: 24px; max-width: 720px; }
+  .overall { background: var(--surface); border: 1px solid var(--hairline-soft); border-radius: 14px; padding: 16px 18px; box-shadow: 0 1px 2px rgba(26,31,56,0.04); }
+  .overall .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .overall .top .t { font-size: 14.5px; color: var(--fg); font-weight: 500; }
+  .overall .top .pct { font: 600 13px/1 var(--mono); color: var(--amber-deep); }
+  .bar { height: 6px; border-radius: 6px; background: var(--sunken); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--amber-deep), var(--amber)); transition: width 2.6s var(--ease); }
+  .rows { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+  .rrow { background: var(--surface); border: 1px solid var(--hairline-soft); border-radius: 12px; padding: 14px 16px; }
+  .rrow .name { font-size: 14px; color: var(--fg); font-weight: 500; margin-bottom: 11px; display: flex; align-items: center; justify-content: space-between; }
+  .rrow .name .sz { font: 500 11px/1 var(--mono); color: var(--fg-faint); }
+  .pipe { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .step { display: flex; flex-direction: column; gap: 7px; }
+  .step .sl { display: flex; align-items: center; gap: 7px; font: 500 11.5px/1 var(--mono); letter-spacing: 0.04em; color: var(--fg-dim); }
+  .step .dot { width: 13px; height: 13px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 8px; color: var(--surface); }
+  .step.done .dot { background: var(--success); }
+  .step.done .sl { color: var(--fg); }
+  .step.run .dot { background: var(--amber-deep); animation: pulse 1.6s var(--ease) infinite; }
+  .step.run .sl { color: var(--fg); }
+  .step.wait .dot { background: var(--sunken); box-shadow: inset 0 0 0 1px var(--hairline); }
+  .step .b2 { height: 4px; border-radius: 4px; background: var(--sunken); overflow: hidden; }
+  .step .b2 i { display: block; height: 100%; width: 0; background: var(--amber-deep); transition: width 2.2s var(--ease); }
+  .step.done .b2 i { width: 100% !important; background: var(--success); transition: none; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(201,130,45,.5)} 70%{box-shadow:0 0 0 7px rgba(201,130,45,0)} 100%{box-shadow:0 0 0 0 rgba(201,130,45,0)} }
+  @media (prefers-reduced-motion: reduce){ .step.run .dot{animation:none} }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="star" viewBox="0 0 24 24" aria-hidden="true"><g fill="#e8b95e"><rect x="10" y="2" width="4" height="4"/><rect x="10" y="6" width="4" height="4" opacity=".6"/><rect x="10" y="18" width="4" height="4"/><rect x="10" y="14" width="4" height="4" opacity=".6"/><rect x="2" y="10" width="4" height="4"/><rect x="6" y="10" width="4" height="4" opacity=".6"/><rect x="18" y="10" width="4" height="4"/><rect x="14" y="10" width="4" height="4" opacity=".6"/></g><rect x="9" y="9" width="6" height="6" fill="#ffd98a"/></svg>
+      <span class="name"><b>stardust</b></span>
+    </div>
+    <nav class="ladder" aria-label="progress">
+      <div class="rung done"><span class="pip"></span><span class="lbl">prototype</span></div>
+      <div class="rung active"><span class="pip"></span><span class="lbl">deploy</span></div>
+    </nav>
+    <div class="spacer"></div>
+    <button class="btn btn-quiet" data-nav="index.html">Restart</button>
+    <button class="btn btn-primary" data-nav="live.html">See result <span class="arr">→</span></button>
+  </header>
+
+  <div class="middle">
+    <section class="conv" aria-label="conversation">
+      <div class="conv-head"><div class="who">
+        
+        <span class="proj"><b>knack.com</b> · redesign</span></div>
+      </div>
+      <div class="conv-thread">
+        <div class="msg fade">
+          <div class="lead"><span class="star">✦</span> Deploying to <b>Edge Delivery</b>…</div>
+          <ul class="clist">
+            <li><span class="ck">✓</span> pushed 8 block definitions</li>
+            <li><span class="ck">✓</span> uploaded 11 assets</li>
+            <li><span class="ck">✓</span> wrote content for 3 templates</li>
+            <li><span class="ck">✓</span> previewing &amp; publishing…</li>
+          </ul>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="field"><input type="text" placeholder="message…" aria-label="message" /><button class="send" aria-label="send"><svg width="15" height="15" viewBox="0 0 16 16"><path d="M2 8h10M8 4l4 4-4 4" fill="none" stroke="#0a1024" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+        <div class="hint">When it's done — <button class="skip mono" data-nav="live.html" style="color:var(--fg-dim)">see result →</button></div>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="deploy run">
+      <div class="subheader">
+        <div class="sub-left"><span class="eyebrow">deploying</span><span style="font-size:13px;color:var(--fg-dim)">uplift-knack-eds</span></div>
+        <div class="sub-right"><span style="font:500 12px/1 var(--mono);color:var(--fg-faint)">3 templates</span></div>
+      </div>
+      <div class="cardbody">
+        <div class="run">
+          <div class="overall fade">
+            <div class="top"><span class="t">Deploying 3 templates to AEM</span><span class="pct">publishing</span></div>
+            <div class="bar"><i data-fill="92%"></i></div>
+          </div>
+          <div class="rows">
+            <div class="rrow fade">
+              <div class="name">Home <span class="sz">8 blocks · 11 assets</span></div>
+              <div class="pipe">
+                <div class="step done"><div class="sl"><span class="dot">✓</span>blocks</div><div class="b2"><i></i></div></div>
+                <div class="step done"><div class="sl"><span class="dot">✓</span>content</div><div class="b2"><i></i></div></div>
+                <div class="step run"><div class="sl"><span class="dot"></span>publish</div><div class="b2"><i data-fill="78%" style="transition-delay:.1s"></i></div></div>
+              </div>
+            </div>
+            <div class="rrow fade">
+              <div class="name">Solution template <span class="sz">6 blocks</span></div>
+              <div class="pipe">
+                <div class="step done"><div class="sl"><span class="dot">✓</span>blocks</div><div class="b2"><i></i></div></div>
+                <div class="step run"><div class="sl"><span class="dot"></span>content</div><div class="b2"><i data-fill="64%" style="transition-delay:.2s"></i></div></div>
+                <div class="step wait"><div class="sl"><span class="dot"></span>publish</div><div class="b2"><i></i></div></div>
+              </div>
+            </div>
+            <div class="rrow fade">
+              <div class="name">Listing template <span class="sz">5 blocks</span></div>
+              <div class="pipe">
+                <div class="step done"><div class="sl"><span class="dot">✓</span>blocks</div><div class="b2"><i></i></div></div>
+                <div class="step run"><div class="sl"><span class="dot"></span>content</div><div class="b2"><i data-fill="48%" style="transition-delay:.3s"></i></div></div>
+                <div class="step wait"><div class="sl"><span class="dot"></span>publish</div><div class="b2"><i></i></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="rail">
+    <div class="item"><span class="ic">◐</span> palette <span class="swatches"><i style="background:#982a86"></i><i style="background:#ff349a"></i><i style="background:#fa816e"></i><i style="background:#1a181d"></i></span></div>
+    <div class="item"><span class="amber">✦</span> deploying to AEM…</div>
+    <div class="spacer"></div>
+    <div class="item clock">⏱ blocks ✓ · content ✓ · publishing</div>
+  </footer>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

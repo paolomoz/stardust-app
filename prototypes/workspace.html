@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>stardust · workspace</title>
+<link rel="stylesheet" href="app.css" />
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="star" viewBox="0 0 24 24" aria-hidden="true"><g fill="#e8b95e"><rect x="10" y="2" width="4" height="4"/><rect x="10" y="6" width="4" height="4" opacity=".6"/><rect x="10" y="18" width="4" height="4"/><rect x="10" y="14" width="4" height="4" opacity=".6"/><rect x="2" y="10" width="4" height="4"/><rect x="6" y="10" width="4" height="4" opacity=".6"/><rect x="18" y="10" width="4" height="4"/><rect x="14" y="10" width="4" height="4" opacity=".6"/></g><rect x="9" y="9" width="6" height="6" fill="#ffd98a"/></svg>
+      <span class="name"><b>stardust</b></span>
+    </div>
+    <nav class="ladder" aria-label="progress">
+      <div class="rung active"><span class="pip"></span><span class="lbl">prototype</span></div>
+      <div class="rung"><span class="pip"></span><span class="lbl">deploy</span></div>
+    </nav>
+    <div class="spacer"></div>
+    <button class="btn btn-quiet" data-nav="index.html">Restart</button>
+    <button class="btn btn-primary" data-nav="deploy.html">Deploy <span class="arr">→</span></button>
+  </header>
+
+  <div class="middle">
+    <section class="conv" aria-label="conversation">
+      <div class="conv-head"><div class="who">
+        
+        <span class="proj"><b>knack.com</b> · redesign</span></div>
+        <button class="btn-quiet" style="font-size:12.5px;color:var(--fg-dim)">History</button>
+      </div>
+      <div class="conv-thread">
+        <div class="msg fade">
+          <div class="lead"><span class="star">✦</span> Variant <b>C</b> — the product builds itself as you scroll. Magenta finally owns the page.</div>
+          <p>Switch variants in the toolbar, or tell me a change. When it's right, hit Deploy.</p>
+        </div>
+        <div class="msg user"><div class="bubble">make the hero headline bigger</div></div>
+        <div class="msg fade">
+          <div class="plan">
+            <div class="tag">plan</div>
+            <ul class="steps">
+              <li><span class="b">01</span><span>Bump the hero display to the top scale step (~76px).</span></li>
+              <li><span class="b">02</span><span>Tighten tracking to -0.04em; keep one CTA.</span></li>
+            </ul>
+            <div class="status"><span>✓</span> Applied · re-rendered</div>
+            <div class="acts"><button class="mini">Undo</button><button class="mini">Keep</button></div>
+          </div>
+          <div class="seed"><span class="k">seed</span> <span class="h">a3f7c9</span> · md5(knack·06-25)</div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="field"><input type="text" placeholder="tell me a change…" aria-label="message" /><button class="send" aria-label="send"><svg width="15" height="15" viewBox="0 0 16 16"><path d="M2 8h10M8 4l4 4-4 4" fill="none" stroke="#0a1024" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+        <div class="hint">Try <span class="mono">"calmer comparison"</span> or <span class="mono">"more magenta"</span>.</div>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="prototype preview">
+      <div class="subheader">
+        <div class="sub-left">
+          <span class="eyebrow">prototype</span>
+          <div class="seg" data-variant-switch role="group" aria-label="variant">
+            <button data-src="assets/knack/home-A-proposed.html" data-label="A · faithful"><span class="k">A</span>faithful</button>
+            <button data-src="assets/knack/home-B-proposed.html" data-label="B · magenta"><span class="k">B</span>magenta</button>
+            <button class="on" data-src="assets/knack/home-C-cinematic.html" data-label="C · cinematic"><span class="k">C</span>cinematic</button>
+          </div>
+        </div>
+        <div class="sub-right">
+          <div class="vtoggle" role="group" aria-label="viewport">
+            <button class="on" id="vDesk" aria-label="desktop" title="Desktop"><svg width="16" height="16" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="9" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6 14h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></button>
+            <button id="vMob" aria-label="mobile" title="Mobile"><svg width="16" height="16" viewBox="0 0 16 16"><rect x="4.5" y="1.5" width="7" height="13" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M7 12.5h2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></button>
+          </div>
+          <a class="open" href="assets/knack/home-C-cinematic.html" target="_blank" rel="noopener">Open in tab <svg width="13" height="13" viewBox="0 0 16 16"><path d="M6 3H3.5v9.5H13V10M9.5 3H13v3.5M13 3L7.5 8.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+        </div>
+      </div>
+      <div class="preview" id="preview">
+        <iframe id="artframe" src="assets/knack/home-C-cinematic.html" title="Knack redesign — variant C" loading="eager"></iframe>
+      </div>
+    </section>
+  </div>
+
+  <footer class="rail">
+    <div class="item"><span class="ic">◐</span> palette <span class="swatches"><i style="background:#982a86"></i><i style="background:#ff349a"></i><i style="background:#fa816e"></i><i style="background:#1a181d"></i></span></div>
+    <div class="item"><span class="amber">✦</span> signature <b>watch it build</b></div>
+    <div class="item"><span class="ic">▦</span> variant <b id="variantLabel">C · cinematic</b></div>
+    <div class="spacer"></div>
+    <div class="item clock">⏱ iterated hero · just now</div>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

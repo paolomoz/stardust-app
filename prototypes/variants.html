@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>stardust · directions</title>
+<link rel="stylesheet" href="app.css" />
+<style>
+  .galwrap { padding: 20px 22px 24px; }
+  .shared { background: var(--surface); border: 1px solid var(--hairline-soft); border-radius: 13px; padding: 14px 16px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(26,31,56,0.04); }
+  .shared .sh { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .shared .sh .e { font: 600 10px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--amber-deep); }
+  .shared .sh .t { font-size: 13px; color: var(--fg-muted); }
+  .shared .sh .t b { color: var(--fg); }
+  .fixchips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .fixchip { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 var(--text); color: var(--fg-muted); background: var(--bg); border: 1px solid var(--hairline-soft); border-radius: 999px; padding: 6px 11px; }
+  .fixchip .ck { color: var(--success); font-size: 11px; }
+
+  .gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: start; }
+  .vcard { position: relative; border: 1px solid var(--hairline-soft); border-radius: 14px; overflow: hidden; background: var(--surface); box-shadow: 0 2px 8px -4px rgba(26,31,56,0.12); cursor: pointer; transition: transform .22s var(--ease), box-shadow .22s var(--ease); display: flex; flex-direction: column; }
+  .vcard:hover { transform: translateY(-3px); box-shadow: 0 18px 40px -18px rgba(26,31,56,0.28); }
+  .vcard.rec { box-shadow: 0 0 0 2px var(--amber), 0 18px 40px -20px rgba(201,130,45,0.4); }
+  .vcard .thumb { aspect-ratio: 16/10; overflow: hidden; background: var(--paper); border-bottom: 1px solid var(--hairline-soft); }
+  .vcard .thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; }
+  .vcard .meta { padding: 13px 14px 15px; display: flex; flex-direction: column; gap: 8px; }
+  .vcard .top { display: flex; align-items: center; gap: 9px; }
+  .vcard .k { width: 20px; height: 20px; border-radius: 5px; background: var(--sunken); display: grid; place-items: center; font: 600 11px/1 var(--mono); color: var(--fg-dim); flex: none; }
+  .vcard.rec .k { background: var(--amber); color: var(--ink); box-shadow: inset 0 0 0 1px rgba(201,130,45,0.5); }
+  .vcard .ttl { font: 600 15px/1.15 var(--display); letter-spacing: -0.01em; color: var(--fg); }
+  .vcard .pitch { font-size: 13px; line-height: 1.45; color: var(--fg-muted); margin: 0; }
+  .whatif { background: rgba(201,130,45,0.08); border: 1px solid rgba(201,130,45,0.22); border-radius: 9px; padding: 9px 11px; }
+  .whatif .q { font: 600 9px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber-deep); display: block; margin-bottom: 5px; }
+  .whatif .qt { font-size: 12.5px; color: var(--fg); line-height: 1.4; font-style: italic; }
+  .faithful { font: 500 12px/1.4 var(--mono); color: var(--fg-dim); padding: 4px 0; }
+  .moves { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  .moves .ml { font: 600 9px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-faint); }
+  .moves li.m { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; color: var(--fg-muted); line-height: 1.4; }
+  .moves li.m .a { color: var(--amber-deep); flex: none; }
+  .role { margin-top: 2px; font: 500 11px/1 var(--mono); letter-spacing: 0.04em; color: var(--fg-faint); }
+  .recpill { position: absolute; top: 10px; right: 10px; z-index: 2; font: 600 9.5px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink); background: var(--amber); padding: 5px 8px; border-radius: 6px; box-shadow: inset 0 0 0 1px rgba(201,130,45,0.5); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="star" viewBox="0 0 24 24" aria-hidden="true"><g fill="#e8b95e"><rect x="10" y="2" width="4" height="4"/><rect x="10" y="6" width="4" height="4" opacity=".6"/><rect x="10" y="18" width="4" height="4"/><rect x="10" y="14" width="4" height="4" opacity=".6"/><rect x="2" y="10" width="4" height="4"/><rect x="6" y="10" width="4" height="4" opacity=".6"/><rect x="18" y="10" width="4" height="4"/><rect x="14" y="10" width="4" height="4" opacity=".6"/></g><rect x="9" y="9" width="6" height="6" fill="#ffd98a"/></svg>
+      <span class="name"><b>stardust</b></span>
+    </div>
+    <nav class="ladder" aria-label="progress">
+      <div class="rung active"><span class="pip"></span><span class="lbl">prototype</span></div>
+      <div class="rung"><span class="pip"></span><span class="lbl">deploy</span></div>
+    </nav>
+    <div class="spacer"></div>
+    <button class="btn btn-quiet" data-nav="capturing.html">← Back</button>
+    <button class="btn btn-primary" data-nav="workspace.html">Open variant C <span class="arr">→</span></button>
+  </header>
+
+  <div class="middle">
+    <section class="conv" aria-label="conversation">
+      <div class="conv-head"><div class="who"><span class="proj"><b>knack.com</b> · redesign</span></div></div>
+      <div class="conv-thread">
+        <div class="msg fade">
+          <div class="lead"><span class="star">✦</span> Three directions, all brand-faithful — palette and Inter kept, the 5 tensions fixed in each.</div>
+          <p>They differ in their <b>bet</b>: A plays it safe, B amplifies the magenta, C makes motion the identity. My pick is <b>C</b>.</p>
+          <p>Each card shows what's fixed and the "what if" behind it. Open any to iterate.</p>
+          <div class="seed"><span class="k">seed</span> <span class="h">a3f7c9</span> · md5(knack·06-25)</div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="field"><input type="text" placeholder="ask for another direction…" aria-label="message" /><button class="send" aria-label="send"><svg width="15" height="15" viewBox="0 0 16 16"><path d="M2 8h10M8 4l4 4-4 4" fill="none" stroke="#0a1024" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+        <div class="hint">Try <span class="mono">"a calmer option"</span> or <span class="mono">"go bolder than C"</span>.</div>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="directions">
+      <div class="subheader">
+        <div class="sub-left"><span class="eyebrow">directions</span><span style="font-size:13px;color:var(--fg-dim)">3 variants · brand-faithful</span></div>
+        <div class="sub-right"><span style="font:500 12px/1 var(--mono);color:var(--fg-faint)">click to iterate</span></div>
+      </div>
+      <div class="cardbody">
+        <div class="galwrap">
+          <!-- shared fixes (from the 5 tensions) -->
+          <div class="shared fade">
+            <div class="sh"><span class="e">all three fix</span><span class="t">the <b>5 tensions</b> from the audit — applied to every variant</span></div>
+            <div class="fixchips">
+              <span class="fixchip"><span class="ck">✓</span> one canonical CTA</span>
+              <span class="fixchip"><span class="ck">✓</span> real modular type scale</span>
+              <span class="fixchip"><span class="ck">✓</span> promoted “build it” switcher</span>
+              <span class="fixchip"><span class="ck">✓</span> sharper comparison block</span>
+              <span class="fixchip"><span class="ck">✓</span> two-step shadow / depth ladder</span>
+            </div>
+          </div>
+
+          <div class="gallery stagger">
+            <!-- A -->
+            <div class="vcard" data-nav="workspace.html">
+              <div class="thumb"><img src="assets/knack/assets/thumb-A.png" alt="Variant A — faithful redesign with fixes" /></div>
+              <div class="meta">
+                <div class="top"><span class="k">A</span><span class="ttl">Faithful + fixes</span></div>
+                <p class="pitch">Your site tomorrow — same IA, the obvious fixes. The risk-averse green-light.</p>
+                <div class="faithful">no new bet · the 5 fixes, nothing else moves</div>
+                <ul class="moves">
+                  <li class="ml">composition</li>
+                  <li class="m"><span class="a">→</span> same section order, white ground</li>
+                  <li class="m"><span class="a">→</span> dual hero CTA collapsed to one</li>
+                </ul>
+                <div class="role">static · green-light pick</div>
+              </div>
+            </div>
+
+            <!-- B -->
+            <div class="vcard" data-nav="workspace.html">
+              <div class="thumb"><img src="assets/knack/assets/thumb-B.png" alt="Variant B — magenta amplified" /></div>
+              <div class="meta">
+                <div class="top"><span class="k">B</span><span class="ttl">Amplify the magenta</span></div>
+                <p class="pitch">The brand's most ownable color, foregrounded — from 0.9% of pixels to the whole canvas.</p>
+                <div class="whatif"><span class="q">what if</span><span class="qt">“magenta &amp; the magenta→coral gradient owned the page, not a thin accent on white?”</span></div>
+                <ul class="moves">
+                  <li class="ml">moves</li>
+                  <li class="m"><span class="a">→</span> full-bleed gradient hero, reversed-out</li>
+                  <li class="m"><span class="a">→</span> dark-magenta capability bands</li>
+                  <li class="m"><span class="a">→</span> comparison as a high-contrast panel</li>
+                </ul>
+                <div class="role">static · brand exploration</div>
+              </div>
+            </div>
+
+            <!-- C -->
+            <div class="vcard rec" data-nav="workspace.html">
+              <span class="recpill">★ recommended</span>
+              <div class="thumb"><img src="assets/knack/assets/thumb-C.png" alt="Variant C — cinematic, motion as identity" /></div>
+              <div class="meta">
+                <div class="top"><span class="k">C</span><span class="ttl">Motion as identity</span></div>
+                <p class="pitch">The homepage becomes a working Knack app — live-systems register.</p>
+                <div class="whatif"><span class="q">what if</span><span class="qt">“the homepage <i>was</i> a working app — data populating, a workflow firing, ROI counting up — not a picture of one?”</span></div>
+                <ul class="moves">
+                  <li class="ml">motion</li>
+                  <li class="m"><span class="a">→</span> hero “app building itself” on scroll</li>
+                  <li class="m"><span class="a">→</span> ROI stats count up · bars fill</li>
+                  <li class="m"><span class="a">→</span> live pulse dots · refresh-sweep</li>
+                </ul>
+                <div class="role">cinematic · visionary pick</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="rail">
+    <div class="item"><span class="ic">◐</span> palette <span class="swatches"><i style="background:#982a86"></i><i style="background:#ff349a"></i><i style="background:#fa816e"></i><i style="background:#1a181d"></i></span></div>
+    <div class="item"><span class="amber">✦</span> signature <b>watch it build</b></div>
+    <div class="item"><span class="ic">▦</span> 5 tensions fixed</div>
+    <div class="spacer"></div>
+    <div class="item clock">⏱ 3 directions ready</div>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

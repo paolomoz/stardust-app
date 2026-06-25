@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>stardust · brand audit</title>
+<link rel="stylesheet" href="app.css" />
+<style>
+  .aud { padding: 24px; max-width: 860px; }
+  .aud-hero { display: grid; grid-template-columns: auto 1fr; gap: 24px; align-items: center; padding: 22px 24px; border-radius: 16px; background: linear-gradient(135deg, rgba(201,130,45,0.10), var(--surface) 60%); border: 1px solid var(--hairline-soft); box-shadow: 0 1px 2px rgba(26,31,56,0.04); }
+  .gauge { width: 96px; height: 96px; border-radius: 50%; display: grid; place-items: center; background: conic-gradient(var(--amber-deep) 0 50%, var(--sunken) 50% 100%); position: relative; }
+  .gauge::after { content: ""; position: absolute; inset: 9px; border-radius: 50%; background: var(--surface); }
+  .gauge .v { position: relative; z-index: 1; text-align: center; }
+  .gauge .v b { font: 600 28px/1 var(--display); color: var(--fg); letter-spacing: -0.02em; }
+  .gauge .v span { display: block; font: 500 9px/1 var(--mono); letter-spacing: 0.1em; color: var(--fg-dim); margin-top: 3px; }
+  .aud-hero .h h1 { font: 600 22px/1.15 var(--display); letter-spacing: -0.02em; color: var(--fg); margin: 0 0 5px; }
+  .aud-hero .h p { font-size: 14px; color: var(--fg-muted); margin: 0 0 12px; max-width: 54ch; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip2 { font: 500 12px/1 var(--mono); color: var(--fg-muted); background: var(--bg); border: 1px solid var(--hairline-soft); border-radius: 7px; padding: 6px 9px; }
+  .chip2 b { color: var(--fg); } .chip2 .hot { color: var(--danger); } .chip2 .am { color: var(--amber-deep); }
+
+  .aud-sec { margin-top: 26px; }
+  .aud-sec > .eh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .aud-sec .num { font: 600 11px/1 var(--mono); color: var(--amber-deep); }
+  .aud-sec .ti { font: 600 16px/1 var(--display); letter-spacing: -0.01em; color: var(--fg); }
+  .aud-sec .sub { font-size: 12.5px; color: var(--fg-dim); }
+  .panel2 { background: var(--surface); border: 1px solid var(--hairline-soft); border-radius: 14px; padding: 18px; box-shadow: 0 1px 2px rgba(26,31,56,0.04); }
+  .panel2 + .panel2 { margin-top: 10px; }
+  .blk-t { font: 500 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--fg-dim); margin-bottom: 10px; }
+
+  .dims { display: flex; flex-direction: column; gap: 10px; }
+  .dim { display: grid; grid-template-columns: 150px 1fr 30px; align-items: center; gap: 12px; }
+  .dim .dl { font-size: 13px; color: var(--fg); } .dim .dl small { display: block; font-size: 11px; color: var(--fg-dim); margin-top: 2px; line-height: 1.3; }
+  .dim .bar { height: 7px; border-radius: 7px; background: var(--sunken); overflow: hidden; }
+  .dim .bar i { display: block; height: 100%; width: 0; border-radius: 7px; transition: width 1s var(--ease); }
+  .dim .sc { font: 600 12.5px/1 var(--mono); color: var(--fg-dim); text-align: right; }
+  .lo i { background: var(--danger); } .mid i { background: var(--amber-deep); } .hi i { background: var(--success); }
+  .sev { display: flex; gap: 8px; margin-top: 4px; }
+  .sevbar { height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font: 600 11px/1 var(--mono); color: #fff; }
+
+  .wbar { display: flex; height: 30px; border-radius: 8px; overflow: hidden; border: 1px solid var(--hairline-soft); }
+  .wbar i { display: flex; align-items: center; padding: 0 8px; font: 600 10px/1 var(--mono); color: #fff; white-space: nowrap; }
+  .wlegend { display: flex; gap: 14px; font: 500 11px/1 var(--mono); color: var(--fg-dim); margin-top: 8px; flex-wrap: wrap; }
+  .wlegend span { display: inline-flex; align-items: center; gap: 6px; } .wlegend i { width: 11px; height: 11px; border-radius: 3px; display: block; }
+  .palrow { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .sw { border-radius: 8px; padding: 10px; width: 92px; box-shadow: inset 0 0 0 1px rgba(26,31,56,0.06); }
+  .sw .r { font: 600 9px/1 var(--mono); letter-spacing: 0.06em; opacity: .9; } .sw .x { font: 500 10px/1 var(--mono); margin-top: 14px; opacity: .85; }
+  .grad { height: 26px; border-radius: 8px; margin-top: 10px; background: linear-gradient(90deg,#982a86,#fa816e); display: flex; align-items: center; padding: 0 10px; font: 600 10px/1 var(--mono); color: #fff; }
+  .buckets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .bucket .bn { font-size: 12px; color: var(--fg); margin-bottom: 7px; } .bucket .bn b { color: var(--amber-deep); }
+  .lbls { display: flex; flex-wrap: wrap; gap: 6px; } .lbl-chip { font: 500 11px/1 var(--mono); color: var(--fg-muted); background: var(--bg); border: 1px solid var(--hairline-soft); border-radius: 6px; padding: 5px 8px; }
+  .scale-cols { display: flex; gap: 14px; }
+  .scale-col { flex: 1; } .scale-col .sct { font: 500 10px/1 var(--mono); color: var(--fg-dim); margin-bottom: 8px; }
+  .bars { display: flex; gap: 4px; align-items: flex-end; height: 84px; }
+  .bars .bz { flex: 1; border-radius: 3px 3px 0 0; position: relative; } .bars .bz span { position: absolute; bottom: -15px; left: 0; right: 0; text-align: center; font: 500 9px/1 var(--mono); color: var(--fg-faint); }
+  .radii { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .radii .rc { font: 500 11px/1 var(--mono); color: var(--fg-muted); background: var(--bg); border: 1px solid var(--hairline); padding: 6px 9px; } .radii .rc b { color: var(--fg); }
+
+  .find { padding: 13px 15px; background: var(--surface); border: 1px solid var(--hairline-soft); border-radius: 12px; }
+  .find + .find { margin-top: 8px; }
+  .find .fh { display: flex; align-items: baseline; gap: 9px; margin-bottom: 5px; }
+  .find .tg { font: 600 9px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber-deep); border: 1px solid rgba(201,130,45,0.35); border-radius: 5px; padding: 4px 6px; white-space: nowrap; }
+  .find .ft { font: 600 14px/1.25 var(--display); color: var(--fg); letter-spacing: -0.005em; }
+  .find .fd { font-size: 13px; color: var(--fg-muted); line-height: 1.5; margin: 0; }
+  .find .fd code { font: 500 11.5px/1 var(--mono); background: var(--sunken); padding: 2px 5px; border-radius: 4px; color: var(--fg); }
+  .find .fx { font-size: 12.5px; color: var(--fg-muted); margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--hairline-soft); }
+  .find .fx b { color: var(--amber-deep); font-weight: 600; }
+
+  .checklist { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .ck-row { display: flex; align-items: flex-start; gap: 9px; font-size: 12.5px; color: var(--fg-muted); padding: 9px 11px; background: var(--surface); border: 1px solid var(--hairline-soft); border-radius: 10px; }
+  .ck-row .mk { flex: none; font-size: 12px; } .ck-row.ok .mk { color: var(--success); } .ck-row.warn .mk { color: var(--danger); }
+  .ck-row b { color: var(--fg); font-weight: 600; display: block; }
+  .strong { display: flex; flex-wrap: wrap; gap: 7px; }
+  .strong .s { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 var(--text); color: var(--fg-muted); background: rgba(95,150,105,0.10); border: 1px solid rgba(95,150,105,0.3); border-radius: 999px; padding: 6px 11px; } .strong .s .c { color: var(--success); }
+  .cwv { display: flex; flex-direction: column; gap: 8px; }
+  .cwv .m { display: grid; grid-template-columns: 110px 1fr 90px; align-items: center; gap: 12px; }
+  .cwv .ml { font-size: 12.5px; color: var(--fg); } .cwv .ml small { color: var(--fg-dim); display: block; font-size: 10.5px; font-family: var(--mono); }
+  .cwv .track { height: 8px; border-radius: 8px; display: flex; overflow: hidden; }
+  .cwv .track i { height: 100%; } .cwv .g { background: rgba(95,150,105,.4); } .cwv .n { background: rgba(201,130,45,.4); } .cwv .p { background: rgba(192,69,63,.4); }
+  .cwv .val { font: 600 12px/1 var(--mono); text-align: right; }
+  .cwv .val.good { color: var(--success); } .cwv .val.ni { color: var(--amber-deep); } .cwv .val.poor { color: var(--danger); }
+  .vmini { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+  .vm { background: var(--surface); border: 1px solid var(--hairline-soft); border-radius: 12px; padding: 14px; } .vm.rec { box-shadow: inset 0 0 0 2px var(--amber); }
+  .vm .vk { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; background: var(--sunken); font: 600 10px/1 var(--mono); color: var(--fg-dim); } .vm.rec .vk { background: var(--amber); color: var(--ink); }
+  .vm .vrole { font: 500 9px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); margin-left: 7px; }
+  .vm .vt { font: 600 14px/1.15 var(--display); color: var(--fg); margin: 8px 0 4px; } .vm .vp { font-size: 12.5px; color: var(--fg-dim); line-height: 1.45; }
+  .footnote { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--hairline-soft); font: 500 11px/1.6 var(--mono); color: var(--fg-faint); }
+  .footnote b { color: var(--amber-deep); }
+  @media (prefers-reduced-motion: reduce){ .dim .bar i { transition: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="star" viewBox="0 0 24 24" aria-hidden="true"><g fill="#e8b95e"><rect x="10" y="2" width="4" height="4"/><rect x="10" y="6" width="4" height="4" opacity=".6"/><rect x="10" y="18" width="4" height="4"/><rect x="10" y="14" width="4" height="4" opacity=".6"/><rect x="2" y="10" width="4" height="4"/><rect x="6" y="10" width="4" height="4" opacity=".6"/><rect x="18" y="10" width="4" height="4"/><rect x="14" y="10" width="4" height="4" opacity=".6"/></g><rect x="9" y="9" width="6" height="6" fill="#ffd98a"/></svg>
+      <span class="name"><b>stardust</b></span>
+    </div>
+    <nav class="ladder" aria-label="progress">
+      <div class="rung active"><span class="pip"></span><span class="lbl">prototype</span></div>
+      <div class="rung"><span class="pip"></span><span class="lbl">deploy</span></div>
+    </nav>
+    <div class="spacer"></div>
+    <button class="btn btn-quiet" data-nav="capturing.html">← Brand review</button>
+    <button class="btn btn-primary" data-nav="variants.html">See directions <span class="arr">→</span></button>
+  </header>
+
+  <div class="middle">
+    <section class="conv" aria-label="conversation">
+      <div class="conv-head"><div class="who"><span class="proj"><b>knack.com</b> · redesign</span></div></div>
+      <div class="conv-thread">
+        <div class="msg fade">
+          <div class="lead"><span class="star">✦</span> Full audit — <b>20 findings</b> across 7 layers, site health <b>50/100</b>.</div>
+          <p>Fundamentals are solid (crawl, schema, alt coverage). The losses cluster in brand expression, hierarchy and a scattered conversion path. The sharpest signal: only <b>0.9%</b> of painted pixels carry brand color.</p>
+          <p>Scorecard, brand surface, every tension, design critique, a11y and SEO finding — then the direction.</p>
+          <div class="seed"><span class="k">audit</span> <span class="h">knack.com</span> · extract → detect → direct</div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="field"><input type="text" placeholder="ask about a finding…" aria-label="message" /><button class="send" aria-label="send"><svg width="15" height="15" viewBox="0 0 16 16"><path d="M2 8h10M8 4l4 4-4 4" fill="none" stroke="#0a1024" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+        <div class="hint">Back to the <button class="skip mono" data-nav="capturing.html" style="color:var(--fg-dim)">brand review</button>, or see directions.</div>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="audit report">
+      <div class="subheader">
+        <div class="sub-left"><span class="eyebrow">audit</span><span style="font-size:13px;color:var(--fg-dim)">knack.com · 7 layers · 20 findings</span></div>
+        <div class="sub-right"><span style="font:500 12px/1 var(--mono);color:var(--fg-faint)">live audit · 2026-06-16</span></div>
+      </div>
+      <div class="cardbody">
+        <div class="aud">
+          <div class="aud-hero fade">
+            <div class="gauge"><div class="v"><b>50</b><span>/ 100</span></div></div>
+            <div class="h">
+              <h1>A solid product, under-showing itself.</h1>
+              <p>Healthy fundamentals; the losses cluster in expression, hierarchy and conversion focus. Uplift headroom: <b>high</b>. Shipped: Variant C · live-systems.</p>
+              <div class="chips">
+                <span class="chip2"><b>20</b> findings</span>
+                <span class="chip2"><b class="hot">7</b> P1 · high severity</span>
+                <span class="chip2"><b>5</b> deterministic tensions</span>
+                <span class="chip2"><b>5</b> critiques</span>
+                <span class="chip2"><b class="am">0.9%</b> pixels carry brand color</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 01 scorecard -->
+          <div class="aud-sec">
+            <div class="eh"><span class="num">01</span><span class="ti">Health scorecard</span><span class="sub">dimensions · 0–100</span></div>
+            <div class="panel2">
+              <div class="dims">
+                <div class="dim lo"><span class="dl">Brand expression<small>magenta paints &lt;1%; best asset buried</small></span><span class="bar"><i data-fill="24%"></i></span><span class="sc">24</span></div>
+                <div class="dim lo"><span class="dl">Conversion clarity<small>21 CTA labels, two competing primaries</small></span><span class="bar"><i data-fill="32%"></i></span><span class="sc">32</span></div>
+                <div class="dim lo"><span class="dl">Visual hierarchy<small>flat type scale + uniform soft shadows</small></span><span class="bar"><i data-fill="36%"></i></span><span class="sc">36</span></div>
+                <div class="dim mid"><span class="dl">Brand consistency<small>fragmented radii, dual tokens, Lato residue</small></span><span class="bar"><i data-fill="42%"></i></span><span class="sc">42</span></div>
+                <div class="dim lo"><span class="dl">AI-search readiness<small>llms.txt 404, no OKF; generic structure</small></span><span class="bar"><i data-fill="30%"></i></span><span class="sc">30</span></div>
+                <div class="dim mid"><span class="dl">Accessibility<small>good alt coverage; missing landmarks + zoom off</small></span><span class="bar"><i data-fill="58%"></i></span><span class="sc">58</span></div>
+                <div class="dim hi"><span class="dl">SEO &amp; semantics<small>strong crawl, sitemap &amp; schema; broken OG</small></span><span class="bar"><i data-fill="66%"></i></span><span class="sc">66</span></div>
+                <div class="dim mid"><span class="dl">Core Web Vitals<small>field fails: mobile NI, desktop CLS 0.28</small></span><span class="bar"><i data-fill="45%"></i></span><span class="sc">45</span></div>
+              </div>
+              <div style="margin-top:16px;border-top:1px solid var(--hairline-soft);padding-top:14px">
+                <div class="blk-t">Severity mix · 20 findings</div>
+                <div class="sev">
+                  <div class="sevbar" style="background:var(--danger);width:35%">P1 · 7</div>
+                  <div class="sevbar" style="background:var(--amber-deep);width:50%">P2 · 10</div>
+                  <div class="sevbar" style="background:var(--fg-dim);width:15%">P3 · 3</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 02 brand surface -->
+          <div class="aud-sec">
+            <div class="eh"><span class="num">02</span><span class="ti">Captured brand surface</span><span class="sub">measured from a live render</span></div>
+            <div class="panel2">
+              <div class="blk-t">Color weighting · painted pixels</div>
+              <div class="wbar">
+                <i style="background:#1a181d;width:62%">ink · 62%</i>
+                <i style="background:#f1f1f1;color:#1a181d;width:35%">white · 35%</i>
+                <i style="background:linear-gradient(90deg,#982a86,#fa816e);width:3%"></i>
+              </div>
+              <div class="wlegend">
+                <span><i style="background:#1a181d"></i> ink #1A181D</span>
+                <span><i style="background:#f1f1f1"></i> white #F1F1F1</span>
+                <span><i style="background:#982a86"></i> magenta</span>
+                <span><i style="background:#ff349a"></i> hot-pink</span>
+                <span><i style="background:#fa816e"></i> coral</span>
+                <span style="color:var(--amber-deep)">→ 0.9% brand</span>
+              </div>
+              <div style="font-size:12.5px;color:var(--fg-muted);margin-top:12px;line-height:1.5"><b style="color:var(--fg)">0.9%</b> of painted pixels carry any Knack brand color. The page is ~97% neutral ink-on-white — a framework canvas, not a brand surface.</div>
+            </div>
+            <div class="panel2">
+              <div class="blk-t">Palette · captured roles</div>
+              <div class="palrow">
+                <div class="sw" style="background:#982a86;color:#fff"><div class="r">PRIMARY</div><div class="x">#982A86</div></div>
+                <div class="sw" style="background:#ff349a;color:#fff"><div class="r">CTA PINK</div><div class="x">#FF349A</div></div>
+                <div class="sw" style="background:#fa816e;color:#fff"><div class="r">CORAL</div><div class="x">#FA816E</div></div>
+                <div class="sw" style="background:#821570;color:#fff"><div class="r">DK-PURPLE</div><div class="x">#821570</div></div>
+                <div class="sw" style="background:#1a181d;color:#fff"><div class="r">BODY</div><div class="x">#1A181D</div></div>
+              </div>
+              <div class="grad">signature gradient · under-used — linear-gradient(90deg, #982a86, #fa816e)</div>
+            </div>
+            <div class="panel2">
+              <div class="blk-t">CTA voice · fragmented — 21 distinct labels</div>
+              <div class="buckets">
+                <div class="bucket"><div class="bn"><b>Sign-up</b> · 3 phrasings</div><div class="lbls"><span class="lbl-chip">Start Building For Free</span><span class="lbl-chip">Get Started Free</span><span class="lbl-chip">Start Free Trial</span></div></div>
+                <div class="bucket"><div class="bn"><b>See-more</b> · 3 phrasings</div><div class="lbls"><span class="lbl-chip">Explore this solution</span><span class="lbl-chip">See More Solutions</span><span class="lbl-chip">See All Integrations</span></div></div>
+              </div>
+            </div>
+            <div class="panel2">
+              <div class="blk-t">Type scale · captured vs proposed ×1.25</div>
+              <div class="scale-cols">
+                <div class="scale-col"><div class="sct">captured · ratios 1.09–1.10 (flat)</div><div class="bars">
+                  <div class="bz" style="height:75%;background:#5b6478"><span>48</span></div><div class="bz" style="height:69%;background:#5b6478"><span>44</span></div><div class="bz" style="height:63%;background:#5b6478"><span>40</span></div><div class="bz" style="height:50%;background:#5b6478"><span>32</span></div><div class="bz" style="height:34%;background:#5b6478"><span>22</span></div><div class="bz" style="height:31%;background:#5b6478"><span>20</span></div>
+                </div></div>
+                <div class="scale-col"><div class="sct">proposed · perfect-fourth ~1.25</div><div class="bars">
+                  <div class="bz" style="height:100%;background:var(--amber)"><span>64</span></div><div class="bz" style="height:80%;background:var(--amber)"><span>51</span></div><div class="bz" style="height:64%;background:var(--amber)"><span>41</span></div><div class="bz" style="height:52%;background:var(--amber)"><span>33</span></div><div class="bz" style="height:41%;background:var(--amber)"><span>26</span></div><div class="bz" style="height:33%;background:var(--amber)"><span>21</span></div>
+                </div></div>
+              </div>
+            </div>
+            <div class="panel2">
+              <div class="blk-t">Radius vocabulary · fragmented (11px dominates)</div>
+              <div class="radii">
+                <span class="rc"><b>11px</b> ×18</span><span class="rc"><b>12px</b> ×7</span><span class="rc"><b>15px</b> ×7</span><span class="rc"><b>16px</b> ×6</span><span class="rc"><b>pill</b> ×6</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 03 deterministic tensions -->
+          <div class="aud-sec">
+            <div class="eh"><span class="num">03</span><span class="ti">Deterministic tensions</span><span class="sub">5 · mechanical · ships in brand-review</span></div>
+            <div class="find"><div class="fh"><span class="tg">type-scale</span><span class="ft">Type scale is ad-hoc</span></div><p class="fd">Captured heading sizes cluster at ratios 1.09–1.10 so everything shouts at one volume.</p><div class="fx"><b>Fix:</b> impose a single modular scale (perfect-fourth ~1.25); tighten hero tracking.</div></div>
+            <div class="find"><div class="fh"><span class="tg">cta-vocab</span><span class="ft">CTA voice is fragmented</span></div><p class="fd"><code>21</code> distinct CTA labels: three sign-up phrasings and three see-more variants. No canonical action.</p><div class="fx"><b>Fix:</b> one canonical primary (hot-pink) repeated site-wide + a single quiet secondary text-link.</div></div>
+            <div class="find"><div class="fh"><span class="tg">radius-vocab</span><span class="ft">Radius vocabulary is mixed</span></div><p class="fd">Five small radii in use: <code>11px ×18</code>, <code>12px ×7</code>, <code>15px ×7</code>, <code>16px ×6</code>, plus a <code>9999px</code> pill.</p><div class="fx"><b>Fix:</b> pick one small radius (11px); reserve the pill for the feature tabs only.</div></div>
+            <div class="find"><div class="fh"><span class="tg">tokens-unused</span><span class="ft">The token layer exists in name only</span></div><p class="fd">Dual token systems and Lato residue; components don't consume a single source of truth.</p><div class="fx"><b>Fix:</b> collapse to one coherent brand-token system and wire components to consume it.</div></div>
+            <div class="find"><div class="fh"><span class="tg">logo-variants</span><span class="ft">Only one logo variant exists</span></div><p class="fd">A single inline-SVG magenta wordmark was captured — no monochrome or inverted variant for dark sections or the footer.</p><div class="fx"><b>Fix:</b> generate a mono / inverted / SVG set; use the inverted mark on the new dark-magenta bands.</div></div>
+          </div>
+
+          <!-- 04 design & experience -->
+          <div class="aud-sec">
+            <div class="eh"><span class="num">04</span><span class="ti">Design &amp; experience</span><span class="sub">5 · design-director judgment</span></div>
+            <div class="find"><div class="fh"><span class="ft">The hero is a 2021 no-code template</span></div><p class="fd">Centered/split layout, a superlative one-liner, two stacked CTAs against a small product visual. It <em>tells</em> rather than shows.</p><div class="fx"><b>Fix:</b> rebuild the hero to show the product building itself — the live-systems register renders records cascading in and a workflow firing.</div></div>
+            <div class="find"><div class="fh"><span class="ft">Two primary actions fight in the hero</span></div><p class="fd">A hot-pink “Start Building For Free” and a magenta “Get Started Free” sit side by side, with a third sign-up phrasing elsewhere.</p><div class="fx"><b>Fix:</b> one canonical hot-pink primary, one quiet “Talk to sales” secondary text-link.</div></div>
+            <div class="find"><div class="fh"><span class="ft">Weak hierarchy, weak depth</span></div><p class="fd">The flat type scale combines with uniformly soft shadows (<code>rgba(26,24,29,0.1) 0 4px 4px</code>) so hero and section heads read at one volume.</p><div class="fx"><b>Fix:</b> a two-step shadow ladder plus the modular scale's dominant hero size restore depth and rhythm.</div></div>
+            <div class="find"><div class="fh"><span class="ft">The sharpest argument looks generic</span></div><p class="fd">The one ownable idea — the head-to-head “How Knack Stands Apart” vs Lovable, Bolt, Airtable, Bubble — is rendered in the same flat cards as everything else.</p><div class="fx"><b>Fix:</b> give the comparison real differentiation (a high-contrast dark panel) so the strongest argument is the most distinct moment.</div></div>
+            <div class="find"><div class="fh"><span class="ft">The brand under-shows itself</span></div><p class="fd">The best asset — an interactive feature switcher — is buried mid-page at small scale, and the signature gradient appears only on thin accents.</p><div class="fx"><b>Fix:</b> promote and enlarge the live switcher; foreground the gradient as a confident brand surface.</div></div>
+          </div>
+
+          <!-- 05 accessibility -->
+          <div class="aud-sec">
+            <div class="eh"><span class="num">05</span><span class="ti">Accessibility</span><span class="sub">3 · rendered page</span></div>
+            <div class="find"><div class="fh"><span class="tg">landmarks</span><span class="ft">Landmark structure is incomplete</span></div><p class="fd">No semantic <code>&lt;nav&gt;</code> / <code>&lt;main&gt;</code> / <code>&lt;footer&gt;</code> regions on the page.</p><div class="fx"><b>Fix:</b> emit semantic landmarks per template, baked into the migrate render.</div></div>
+            <div class="find"><div class="fh"><span class="tg">motion</span><span class="ft">The animated hero has no text equivalent</span></div><p class="fd">A motion-driven hero with no accessible name or static fallback.</p><div class="fx"><b>Fix:</b> give the hero an aria-label and a visible headline, with motion gated behind <code>prefers-reduced-motion</code>.</div></div>
+            <div class="find"><div class="fh"><span class="tg">WCAG 1.4.4</span><span class="ft">The viewport disables pinch-zoom</span></div><p class="fd"><code>maximum-scale=1</code> blocks zooming — a failure that hits low-vision users hardest.</p><div class="fx"><b>Fix:</b> drop <code>maximum-scale</code> and any <code>user-scalable=no</code>. Zero design cost, real gain.</div></div>
+          </div>
+
+          <!-- 06 technical & SEO -->
+          <div class="aud-sec">
+            <div class="eh"><span class="num">06</span><span class="ti">Technical &amp; on-page SEO</span><span class="sub">live fetch · 2026-06-16</span></div>
+            <div class="panel2">
+              <div class="blk-t">Core Web Vitals · CrUX field · p75</div>
+              <div class="cwv">
+                <div class="m"><span class="ml">CLS<small>cumulative layout shift</small></span><span class="track"><i class="g" style="width:30%"></i><i class="n" style="width:25%"></i><i class="p" style="width:45%"></i></span><span class="val poor">0.28 · Poor</span></div>
+                <div class="m"><span class="ml">LCP<small>desktop</small></span><span class="track"><i class="g" style="width:55%"></i><i class="n" style="width:25%"></i><i class="p" style="width:20%"></i></span><span class="val good">passes</span></div>
+                <div class="m"><span class="ml">INP<small>desktop</small></span><span class="track"><i class="g" style="width:55%"></i><i class="n" style="width:25%"></i><i class="p" style="width:20%"></i></span><span class="val good">passes</span></div>
+                <div class="m"><span class="ml">Mobile<small>all metrics</small></span><span class="track"><i class="g" style="width:25%"></i><i class="n" style="width:55%"></i><i class="p" style="width:20%"></i></span><span class="val ni">needs work</span></div>
+              </div>
+              <div style="font-size:12.5px;color:var(--fg-muted);margin-top:12px;line-height:1.5">Both form factors <b style="color:var(--danger)">fail</b> the assessment. Layout shift (<b style="color:var(--fg)">CLS 0.28</b>) is the real problem — not load speed.</div>
+            </div>
+            <div class="panel2">
+              <div class="blk-t">Status · robots · sitemap · canonical · OG · schema</div>
+              <div class="checklist">
+                <div class="ck-row ok"><span class="mk">✓</span><span><b>Crawlability</b> robots clean · sitemap declared</span></div>
+                <div class="ck-row ok"><span class="mk">✓</span><span><b>Indexation</b> self-canonical · 18-section map</span></div>
+                <div class="ck-row ok"><span class="mk">✓</span><span><b>HTTPS &amp; delivery</b> HTTPS · HSTS · CloudFront</span></div>
+                <div class="ck-row ok"><span class="mk">✓</span><span><b>Structured data</b> rich Yoast JSON-LD</span></div>
+                <div class="ck-row warn"><span class="mk">⚠</span><span><b>Semantics</b> no main / nav / footer</span></div>
+                <div class="ck-row warn"><span class="mk">⚠</span><span><b>Open Graph</b> broken description &amp; title</span></div>
+                <div class="ck-row warn"><span class="mk">⚠</span><span><b>On-page polish</b> title space · keyword echo</span></div>
+                <div class="ck-row warn"><span class="mk">⚠</span><span><b>AI-search</b> llms.txt 404 · no OKF</span></div>
+                <div class="ck-row warn"><span class="mk">⚠</span><span><b>Core Web Vitals</b> fails mobile &amp; desktop (CLS)</span></div>
+              </div>
+            </div>
+            <div class="find"><div class="fh"><span class="tg">og</span><span class="ft">Open Graph is broken for sharing</span></div><p class="fd"><code>og:description</code> renders as a literal newline, <code>og:title</code> is generic, and <code>og:image</code> is an <code>.svg</code> most platforms refuse. Shared links look broken.</p><div class="fx"><b>Fix:</b> a real description, the real title, a 1200×630 PNG/JPG. One fix lifts every shared link.</div></div>
+            <div class="find"><div class="fh"><span class="tg">headings</span><span class="ft">Heading sizes are near-identical</span></div><p class="fd">H1 (<code>48px</code>) and H2 (<code>44px</code>) sit 4px apart — the levels read as flat.</p><div class="fx"><b>Fix:</b> the modular scale gives each level a distinct size with the H1 clearly dominant.</div></div>
+            <div class="find"><div class="fh"><span class="tg">h1-intent</span><span class="ft">The H1 leads with a claim, not intent</span></div><p class="fd">A superlative assertion (“The most secure app and database builder…”) rather than an intent-matched, benefit-led headline.</p><div class="fx"><b>Fix:</b> lead with the job-to-be-done; move the superlative into proof (comparison + ROI).</div></div>
+            <div class="find"><div class="fh"><span class="tg">meta</span><span class="ft">Title and meta need a polish</span></div><p class="fd">Title carries stray whitespace and a duplicated keyword.</p><div class="fx"><b>Fix:</b> trim and de-duplicate; use the ~155-char budget for a differentiated benefit.</div></div>
+            <div class="find"><div class="fh"><span class="tg">chrome</span><span class="ft">A dated promo is baked into the chrome</span></div><p class="fd">A time-bound strip above the nav: “Get 65% off Starter Plans for a limited time.”</p><div class="fx"><b>Fix:</b> move time-bound offers into a dismissible, swappable slot so the chrome stays evergreen.</div></div>
+            <div class="find"><div class="fh"><span class="tg">ai-search</span><span class="ft">Not built to be cited by AI search</span></div><p class="fd"><code>/llms.txt</code> returns <code>404</code> and there is no Open Knowledge Format bundle; the persuasion structure is weakly citable.</p><div class="fx"><b>Fix:</b> add an llms.txt / OKF bundle; restructure the comparison and ROI proof as clean, citable blocks.</div></div>
+            <div class="panel2">
+              <div class="blk-t">✓ Already strong — an honest audit names what works</div>
+              <div class="strong">
+                <span class="s"><span class="c">✓</span> Single H1 per page</span>
+                <span class="s"><span class="c">✓</span> lang="en-US"</span>
+                <span class="s"><span class="c">✓</span> Self-referencing canonical</span>
+                <span class="s"><span class="c">✓</span> Rich Yoast structured data</span>
+                <span class="s"><span class="c">✓</span> Clean robots + 18-section sitemap</span>
+                <span class="s"><span class="c">✓</span> HTTPS + HSTS + CloudFront</span>
+                <span class="s"><span class="c">✓</span> 185 images, 0 missing alt</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 07 direction -->
+          <div class="aud-sec">
+            <div class="eh"><span class="num">07</span><span class="ti">Uplift direction</span><span class="sub">3 bets · 1 shipped</span></div>
+            <div class="vmini">
+              <div class="vm"><span class="vk">A</span><span class="vrole">green-light</span><div class="vt">Faithful + fixes</div><div class="vp">Same IA, the obvious fixes: one canonical CTA, a modular scale, a shadow ladder, the comparison given real weight.</div></div>
+              <div class="vm"><span class="vk">B</span><span class="vrole">motivator</span><div class="vt">Amplify the magenta</div><div class="vp">A full-bleed magenta→coral gradient hero, dark capability bands. The signature color finally owns the page.</div></div>
+              <div class="vm rec"><span class="vk">C</span><span class="vrole">shipped · live-systems</span><div class="vt">Motion as identity</div><div class="vp">The homepage is a working Knack app: records cascading in, ROI counting up. Same IA as A; gated behind prefers-reduced-motion.</div></div>
+            </div>
+          </div>
+
+          <div class="footnote">◆ STARDUST · knack.com site audit · extract → detect → direct → migrate<br/><b>5 tensions · 5 critiques · live SEO audit · Variant C shipped</b></div>
+
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="rail">
+    <div class="item"><span class="ic">◐</span> palette <span class="swatches"><i style="background:#982a86"></i><i style="background:#ff349a"></i><i style="background:#fa816e"></i><i style="background:#1a181d"></i></span></div>
+    <div class="item"><span class="amber">✦</span> health <b>50 / 100</b> · headroom high</div>
+    <div class="spacer"></div>
+    <div class="item clock">⏱ 20 findings · 7 layers</div>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
