@@ -11,7 +11,7 @@ import { working } from "./screens/working";
 import { brand } from "./screens/brand";
 import { variants } from "./screens/variants";
 import { workspace } from "./screens/workspace";
-import { beginRun, navTo, openVariant, sendMessage, resetRun } from "./driver/liveDriver";
+import { beginRun, navTo, openVariant, sendMessage, resetRun, reopenRun } from "./driver/liveDriver";
 
 // Dev affordance: /?mode=agent runs a real Managed Agents session;
 // /?mode=probe runs a cheap skill-load probe (reads SKILL.md, no rendering).
@@ -63,3 +63,7 @@ function render(s: RunState): void {
 
 store.subscribe(render);
 render(store.get());
+
+// /?run=<id> — reopen a finished run (replays its saved timeline; no new run).
+const reopenId = new URLSearchParams(location.search).get("run");
+if (reopenId) reopenRun(reopenId);

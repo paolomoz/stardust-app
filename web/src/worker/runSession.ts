@@ -6,7 +6,7 @@
    =========================================================================== */
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./index";
-import type { Message, RailState, ScreenId, VariantCard, VariantId } from "../state";
+import type { Message, RailState, ScreenId, TaskItem, VariantCard, VariantId } from "../state";
 import type { ClientCommand, ServerEvent } from "../shared/protocol";
 import { createSession, sendUserMessage, streamEvents, type MaCreds } from "./managedAgents";
 import {
@@ -32,6 +32,17 @@ const variants: VariantCard[] = VARIANT_META.map((m) => ({
   thumb: `${ART}/assets/${m.thumbFile}`,
 }));
 
+// Honest uplift step list (single-page render → 3 variants), driven live by the
+// agent's milestones. Deliberately NOT the knack demo copy ("24 pages found").
+const UPLIFT_TASKS: TaskItem[] = [
+  { id: "crawl", cat: "CAPTURE", kind: "crawl", title: "Rendering the page", detail: "live capture", status: "wait" },
+  { id: "read", cat: "READ", kind: "read", title: "Reading the brand", detail: "palette · type · logo", status: "wait" },
+  { id: "extract", cat: "EXTRACT", kind: "extract", title: "Brand surface", detail: "tokens · motifs", status: "wait" },
+  { id: "analyze", cat: "ANALYZE", kind: "analyze", title: "Finding tensions", detail: "CTAs · scale · contrast", status: "wait" },
+  { id: "generate", cat: "DIRECT", kind: "generate", title: "Composing 3 directions", detail: "brand-faithful bets", status: "wait" },
+  { id: "validate", cat: "VALIDATE", kind: "validate", title: "Validating renders", detail: "a11y · responsive · motion", status: "wait" },
+];
+
 function deriveProject(url: string): string {
   try {
     return new URL(url.startsWith("http") ? url : `https://${url}`).hostname.replace(/^www\./, "");
@@ -53,6 +64,8 @@ export class RunSession extends DurableObject<Env> {
   // (pushed by the sandbox agent via the ingest endpoints) instead of the knack
   // demo constants.
   private uplift = false;
+  private finished = false;
+  private tasks: TaskItem[] = [];
   private realTensions: { n: string; text: string }[] = [];
   private realBrand?: { brandReviewUrl: string; tensions: { n: string; text: string }[] };
   private realVariants?: { sharedFixes: string[]; variants: VariantCard[] };
@@ -65,8 +78,34 @@ export class RunSession extends DurableObject<Env> {
     server.accept();
     this.sockets.add(server);
 
-    // Catch up a (re)connecting client with everything emitted so far.
-    for (const ev of this.events) server.send(JSON.stringify(ev));
+    if (!this.started) {
+      this.started = true;
+      this.runId = runId;
+      // Reopen of a finished run (/?run=<id>): the DO is cold, so rehydrate its
+      // timeline + result from D1 and replay — do NOT start a new (paid) run.
+      const persisted = await this.env.DB.prepare(
+        "SELECT payload FROM run_events WHERE run_id = ? ORDER BY seq",
+      )
+        .bind(runId)
+        .all<{ payload: string }>();
+      const rows = persisted.results ?? [];
+      if (rows.length) {
+        for (const r of rows) {
+          try {
+            this.events.push(JSON.parse(r.payload) as ServerEvent);
+          } catch {
+            /* skip malformed */
+          }
+        }
+        await this.rehydrateResult(runId);
+        for (const ev of this.events) server.send(JSON.stringify(ev));
+      } else {
+        void this.start(runId);
+      }
+    } else {
+      // Reconnect to an active run: catch up with everything emitted so far.
+      for (const ev of this.events) server.send(JSON.stringify(ev));
+    }
 
     server.addEventListener("message", (e) => {
       try {
@@ -80,10 +119,6 @@ export class RunSession extends DurableObject<Env> {
     server.addEventListener("close", drop);
     server.addEventListener("error", drop);
 
-    if (!this.started) {
-      this.started = true;
-      void this.start(runId);
-    }
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -256,11 +291,11 @@ export class RunSession extends DurableObject<Env> {
     this.uplift = true;
     const { ANTHROPIC_API_KEY, STARDUST_AGENT_ID, STARDUST_ENVIRONMENT_ID } = this.env;
 
-    const tasks = knackTasks();
-    tasks[0].status = "run";
+    this.tasks = UPLIFT_TASKS.map((t) => ({ ...t }));
+    this.tasks[0].status = "run";
     await this.emit({ t: "run.started", runId: this.runId, url, projectName: this.project, seed: "—" });
     await this.emit({ t: "phase", phase: "prototype" });
-    await this.emit({ t: "tasks.init", tasks });
+    await this.emit({ t: "tasks.init", tasks: this.tasks });
     await this.emit({ t: "progress", value: 5 });
     await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock: "⏱ uplift · live" } });
     await this.emit({ t: "screen", screen: "working" });
@@ -304,14 +339,20 @@ export class RunSession extends DurableObject<Env> {
           const name = (ev as { name?: string }).name ?? "tool";
           await this.emit({ t: "message.append", message: { id: `t-${this.seq}`, role: "agent", lead: `› ${name}` } });
         } else if (ev.type === "session.status_idle") {
-          if (this.runId) await this.env.DB.prepare("UPDATE runs SET status = 'done' WHERE id = ?").bind(this.runId).run();
-          await this.emit({ t: "message.append", message: { id: "fin", role: "agent", lead: "✓ stardust finished." } });
-          await this.emit({ t: "run.done" });
-          break;
+          // A turn boundary — NOT necessarily completion. The agent runs many
+          // turns; finish only once its {"phase":"done"} milestone has arrived
+          // (which sets this.finished via ingestEvent). Otherwise keep streaming.
+          if (this.finished) break;
         } else if (ev.type === "session.error") {
           await this.fail(`session error: ${JSON.stringify((ev as { error?: unknown }).error ?? ev)}`);
           break;
         }
+      }
+      // Stream closed (worker stopped) without an explicit done milestone — finalize.
+      if (!this.finished) {
+        await this.emit({ t: "message.append", message: { id: "fin", role: "agent", lead: "✓ stardust finished." } });
+        await this.emit({ t: "run.done" });
+        await this.env.DB.prepare("UPDATE runs SET status = 'done' WHERE id = ?").bind(this.runId).run();
       }
     } catch (e) {
       await this.emit({ t: "message.append", message: { id: "err", role: "agent", lead: `Run error: ${String((e as Error).message ?? e)}` } });
@@ -344,12 +385,22 @@ export class RunSession extends DurableObject<Env> {
     });
   }
 
-  /** Called by the Worker when the sandbox agent POSTs a milestone. */
-  async ingestEvent(ev: unknown): Promise<void> {
+  /** Called by the Worker when the sandbox agent POSTs a milestone. The tasks
+   *  list (this.tasks) is the source of truth; we mutate it and re-emit
+   *  tasks.init so labels/details reflect the real run, not canned demo copy. */
+  async ingestEvent(runId: string, ev: unknown): Promise<void> {
+    if (!this.runId) this.runId = runId;
     const e = (ev ?? {}) as { phase?: string; event?: string; seed?: string; items?: { n: string; text: string }[]; brandReview?: string; sharedFixes?: string[]; variants?: unknown[]; variant?: string };
-    const tick = async (id: string, next: string | null, progress: number, status?: string) => {
-      await this.emit({ t: "task", id, status: "done" });
-      if (next) await this.emit({ t: "task", id: next, status: "run" });
+    const set = (id: string, status?: TaskItem["status"], detail?: string) => {
+      const t = this.tasks.find((x) => x.id === id);
+      if (!t) return;
+      if (status) t.status = status;
+      if (detail) t.detail = detail;
+    };
+    const advance = async (doneId: string, nextId: string | null, progress: number, status?: string) => {
+      set(doneId, "done");
+      if (nextId) set(nextId, "run");
+      if (this.tasks.length) await this.emit({ t: "tasks.init", tasks: this.tasks });
       await this.emit({ t: "progress", value: progress });
       if (status) await this.emit({ t: "status", text: status });
     };
@@ -358,32 +409,70 @@ export class RunSession extends DurableObject<Env> {
       await this.emit({ t: "status", text: "reading the site" });
     } else if (e.phase === "extract" && e.event === "seed") {
       await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock: `⏱ seed ${e.seed ?? ""}` } });
-      await tick("crawl", "read", 22, "extracting brand surface");
+      await advance("crawl", "read", 22, "reading the brand");
     } else if (e.phase === "extract" && e.event === "tensions") {
       this.realTensions = e.items ?? [];
-      await tick("read", "extract", 40, "identifying tensions");
+      set("analyze", undefined, `${this.realTensions.length} tensions`);
+      await advance("read", "extract", 40, "identifying tensions");
     } else if (e.phase === "extract" && e.event === "brand_ready") {
       this.realBrand = { brandReviewUrl: this.art(e.brandReview ?? "brand-review.html"), tensions: this.realTensions };
-      await tick("extract", "analyze", 58, "brand surface captured");
+      await this.persistResult();
+      await advance("extract", "analyze", 58, "brand surface captured");
       await this.emit({ t: "message.append", message: { id: `brand-${this.seq}`, role: "agent", lead: "Brand surface captured — open the snapshot." } });
       await this.emit({ t: "snapshot.ready" });
     } else if (e.phase === "direct" && e.event === "variants_ready") {
       this.realVariants = { sharedFixes: e.sharedFixes ?? [], variants: this.mapVariants(e.variants ?? []) };
-      await tick("analyze", "generate", 74, "three directions composed");
+      const ids = this.realVariants.variants.map((v) => v.id).join(" · ");
+      set("generate", undefined, ids || "3 directions");
+      await this.persistResult();
+      await advance("analyze", "generate", 74, "three directions composed");
       await this.emit({ t: "message.append", message: { id: `var-${this.seq}`, role: "agent", lead: "Three directions ready." } });
     } else if (e.phase === "prototype" && e.event === "variant_done") {
+      set("generate", "run");
+      await this.emit({ t: "tasks.init", tasks: this.tasks });
       await this.emit({ t: "status", text: `variant ${e.variant ?? ""} rendered` });
       await this.emit({ t: "progress", value: 88 });
     } else if (e.phase === "done") {
-      await this.emit({ t: "task", id: "generate", status: "done" });
-      await this.emit({ t: "task", id: "validate", status: "done" });
+      this.finished = true;
+      set("generate", "done");
+      set("validate", "done");
+      await this.persistResult();
+      if (this.tasks.length) await this.emit({ t: "tasks.init", tasks: this.tasks });
       await this.emit({ t: "progress", value: 100 });
       await this.emit({ t: "snapshot.ready" });
+      await this.emit({ t: "message.append", message: { id: `done-${this.seq}`, role: "agent", lead: "✓ Done — three variants ready. Open the snapshot." } });
+      await this.emit({ t: "run.done" });
+      await this.env.DB.prepare("UPDATE runs SET status = 'done' WHERE id = ?").bind(this.runId).run();
+    }
+  }
+
+  /** Persist the real result (brand + variants) so a finished run can be
+   *  reopened (/?run=<id>) and its brand/variants screens rebuilt. */
+  private async persistResult(): Promise<void> {
+    const result = JSON.stringify({ uplift: true, brand: this.realBrand ?? null, variants: this.realVariants ?? null });
+    await this.env.DB.prepare("UPDATE runs SET result_json = ? WHERE id = ?").bind(result, this.runId).run();
+  }
+
+  private async rehydrateResult(runId: string): Promise<void> {
+    const row = await this.env.DB.prepare("SELECT result_json FROM runs WHERE id = ?").bind(runId).first<{ result_json: string | null }>();
+    if (!row?.result_json) return;
+    try {
+      const r = JSON.parse(row.result_json) as {
+        uplift?: boolean;
+        brand?: { brandReviewUrl: string; tensions: { n: string; text: string }[] } | null;
+        variants?: { sharedFixes: string[]; variants: VariantCard[] } | null;
+      };
+      this.uplift = !!r.uplift;
+      if (r.brand) this.realBrand = r.brand;
+      if (r.variants) this.realVariants = r.variants;
+    } catch {
+      /* ignore malformed */
     }
   }
 
   /** Called by the Worker when the sandbox agent uploads an artifact. */
-  async ingestArtifact(rel: string, _contentType: string): Promise<void> {
+  async ingestArtifact(runId: string, rel: string, _contentType: string): Promise<void> {
+    if (!this.runId) this.runId = runId;
     // R2 write is done by the Worker; if a proposed variant arrives while its
     // workspace is open, hot-swap the preview (M6 leans on this). For M5 we just
     // note the brand surface / variants landing.

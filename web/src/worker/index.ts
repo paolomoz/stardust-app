@@ -76,7 +76,7 @@ export default {
         return Response.json({ error: "invalid json" }, { status: 400 });
       }
       const stub = env.RUN.get(env.RUN.idFromName(runId));
-      await stub.ingestEvent(ev);
+      await stub.ingestEvent(runId, ev);
       return Response.json({ ok: true });
     }
 
@@ -90,7 +90,7 @@ export default {
       const contentType = request.headers.get("content-type") ?? "application/octet-stream";
       await env.BUCKET.put(key, request.body, { httpMetadata: { contentType } });
       const stub = env.RUN.get(env.RUN.idFromName(runId));
-      await stub.ingestArtifact(rel, contentType);
+      await stub.ingestArtifact(runId, rel, contentType);
       return Response.json({ ok: true, key });
     }
 

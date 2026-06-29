@@ -2,3 +2,5 @@
 .impeccable/
 *.log
 node_modules/
+runs/
+.env

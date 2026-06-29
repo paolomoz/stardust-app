@@ -104,6 +104,17 @@ export async function beginRun(url: string, mode: "scripted" | "agent" | "probe"
     return;
   }
   const { id } = (await res.json()) as { id: string };
+  openSocket(id);
+}
+
+/** Reopen a finished run by id (/?run=<id>) — connect to its DO, which replays
+ *  the saved timeline from D1. No new run is created (no agent cost). */
+export function reopenRun(runId: string): void {
+  resetRun();
+  openSocket(runId);
+}
+
+function openSocket(id: string): void {
   ws = new WebSocket(wsUrl(id));
   ws.addEventListener("message", (e) => {
     try {

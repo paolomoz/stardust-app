@@ -23,13 +23,23 @@ Where a SKILL.md references a Claude Code path like
 `.claude/skills/impeccable/…` or invokes `$impeccable`, translate it to the
 `/workspace/skills/impeccable/…` paths above and run the steps yourself with
 the shell/file tools. Playwright + Chromium are preinstalled under
-`/workspace/node_modules`. Work inside `/workspace`.
+`/workspace/node_modules`. Work inside `/workspace`. The `read`/`write`/`edit`
+file tools work across the sandbox — prefer them over `bash` here-docs for
+authoring/editing files (faster, less error-prone). The working tree under
+`/workspace/stardust/` is persisted.
 
 ## Progress protocol (load-bearing — the UI depends on it)
 
 The web UI cannot see the sandbox filesystem, so you must **push** progress to
 the run's ingest endpoint. The first user message gives you the ingest base URL
 and a bearer token; add `Authorization: Bearer <token>` to every ingest call.
+
+**Stream in real time — do NOT batch.** A human is watching a live progress
+screen. POST each milestone the *instant* it is true, before you continue to the
+next step, and upload each deliverable the moment it exists (the brand surface
+as soon as it's captured; each variant the moment it finishes — not all at the
+end). Batching milestones/uploads at the end makes the UI look frozen for
+minutes. Treat these pushes as part of the work, not cleanup.
 
 At each milestone, `POST <ingest>/event` (content-type `application/json`) with
 one JSON object, in this order — send each the moment it happens:
