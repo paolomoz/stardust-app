@@ -9,9 +9,21 @@ Given a target URL, run the `stardust:uplift <URL>` skill to completion,
 non-interactively. Uplift collapses extract → direct → prototype ×3 into one
 opinionated run: it reads the brand from a live render, identifies tensions,
 and produces three brand-faithful redesign variants (A faithful · B magenta ·
-C cinematic). The stardust and impeccable skills live under
-`/workspace/skills/`; read their SKILL.md files and follow them exactly. All
-validation gates (critique, audit, adapt, motion) must run — never skip them.
+C cinematic). All validation gates (critique, audit, adapt, motion) must run —
+never skip them.
+
+The skills are baked into this sandbox (read their SKILL.md and follow exactly):
+- stardust skills: `/workspace/skills/stardust/<name>/SKILL.md`
+  (e.g. `…/stardust/uplift/SKILL.md`, `…/stardust/extract/SKILL.md`,
+  `…/stardust/stardust/SKILL.md` is the master). Their cross-references like
+  `../extract/SKILL.md` resolve within `/workspace/skills/stardust/`.
+- impeccable: `/workspace/skills/impeccable/SKILL.md`, scripts under
+  `/workspace/skills/impeccable/scripts/` (e.g. `context.mjs`, `palette.mjs`).
+Where a SKILL.md references a Claude Code path like
+`.claude/skills/impeccable/…` or invokes `$impeccable`, translate it to the
+`/workspace/skills/impeccable/…` paths above and run the steps yourself with
+the shell/file tools. Playwright + Chromium are preinstalled under
+`/workspace/node_modules`. Work inside `/workspace`.
 
 ## Progress protocol (load-bearing — the UI depends on it)
 
