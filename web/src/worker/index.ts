@@ -28,7 +28,7 @@ export default {
     if (path === "/api/runs" && request.method === "POST") {
       const { url: target, mode } = (await request.json()) as { url?: string; mode?: string };
       if (!target) return Response.json({ error: "url required" }, { status: 400 });
-      const runMode = mode === "agent" ? "agent" : "scripted";
+      const runMode = mode === "agent" ? "agent" : mode === "probe" ? "probe" : "scripted";
       const id = crypto.randomUUID();
       await env.DB.prepare("INSERT INTO runs (id, url, status, mode, created_at) VALUES (?, ?, 'pending', ?, ?)")
         .bind(id, target, runMode, Date.now())

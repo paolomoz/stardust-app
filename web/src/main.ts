@@ -13,8 +13,10 @@ import { variants } from "./screens/variants";
 import { workspace } from "./screens/workspace";
 import { beginRun, navTo, openVariant, sendMessage, resetRun } from "./driver/liveDriver";
 
-// Dev affordance: /?mode=agent runs a real Managed Agents session.
-const runMode = new URLSearchParams(location.search).get("mode") === "agent" ? "agent" : "scripted";
+// Dev affordance: /?mode=agent runs a real Managed Agents session;
+// /?mode=probe runs a cheap skill-load probe (reads SKILL.md, no rendering).
+const _mode = new URLSearchParams(location.search).get("mode");
+const runMode = _mode === "agent" ? "agent" : _mode === "probe" ? "probe" : "scripted";
 
 const app: App = {
   start: (url) => void beginRun(url, runMode),

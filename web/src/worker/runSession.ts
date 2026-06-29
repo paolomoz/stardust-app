@@ -123,7 +123,7 @@ export class RunSession extends DurableObject<Env> {
       .bind(this.project, runId)
       .run();
 
-    if (row?.mode === "agent") return this.runAgent(url);
+    if (row?.mode === "agent" || row?.mode === "probe") return this.runAgent(url, row.mode === "probe");
     return this.runScripted(url, runId);
   }
 
@@ -168,7 +168,7 @@ export class RunSession extends DurableObject<Env> {
 
   /* ---- M3+ real run: a Managed Agents session, streamed to the UI ---- */
 
-  private async runAgent(url: string): Promise<void> {
+  private async runAgent(url: string, probe = false): Promise<void> {
     const { ANTHROPIC_API_KEY, STARDUST_AGENT_ID, STARDUST_ENVIRONMENT_ID } = this.env;
     await this.emit({ t: "run.started", runId: this.runId, url, projectName: this.project, seed: KNACK_SEED });
     await this.emit({ t: "phase", phase: "prototype" });
@@ -188,9 +188,27 @@ export class RunSession extends DurableObject<Env> {
 
     // M3 connectivity check — proves session + tools + SSE relay without skills.
     // M5 swaps this for: `Redesign ${url}. Run stardust:uplift <URL> to completion…`
-    const prompt =
+    const connectivityPrompt =
       "Connectivity check from the stardust web app. In one short sentence, confirm you're running. " +
       "Then create the file /mnt/session/outputs/hello.txt containing 'stardust online' and stop.";
+
+    // Skill-load probe (/?mode=probe) — cheap: just reads the baked SKILL.md and
+    // reports. No Playwright, no URL fetch, no redesign. Proves the brain can
+    // find, read, and understand the stardust skill before a full uplift.
+    const probePrompt =
+      "Skill-load probe — DO NOT run a redesign, DO NOT launch Playwright, DO NOT fetch any URL. " +
+      "The stardust skills are baked at /workspace/skills. Do exactly this:\n" +
+      "1) Run `ls /workspace/skills/stardust` to see the available skills.\n" +
+      "2) Read /workspace/skills/stardust/uplift/SKILL.md.\n" +
+      "3) Read the first heading of /workspace/skills/impeccable/SKILL.md.\n" +
+      "Then, as your FINAL message (this is required — write it as plain text in the chat, " +
+      "do not skip it), report your findings in this exact shape:\n" +
+      "• Skills found: <comma-separated list from step 1>\n" +
+      "• uplift: <2–3 sentences on what stardust:uplift does and the exact phase chain it runs>\n" +
+      "• impeccable: present — \"<the first heading text>\"\n" +
+      "Keep it tight, then stop.";
+
+    const prompt = probe ? probePrompt : connectivityPrompt;
 
     try {
       const sessionId = await createSession(creds, `stardust · ${this.project}`, { url });
