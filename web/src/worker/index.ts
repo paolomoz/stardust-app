@@ -15,9 +15,25 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   STARDUST_AGENT_ID?: string;
   STARDUST_ENVIRONMENT_ID?: string;
+  // Base URL the sandbox container uses to reach this Worker's ingest endpoints.
+  // Local dev (Docker Desktop): http://host.docker.internal:5174. Prod: the
+  // public Worker origin.
+  INGEST_BASE?: string;
 }
 
 const WS_PATH = /^\/api\/runs\/([^/]+)\/ws$/;
+const INGEST_EVENT = /^\/api\/ingest\/([^/]+)\/event$/;
+const INGEST_ARTIFACT = /^\/api\/ingest\/([^/]+)\/artifact\/(.+)$/;
+
+/** Authorize an ingest call against the run's per-run token (stored in D1). */
+async function ingestAuthed(env: Env, runId: string, request: Request): Promise<boolean> {
+  const bearer = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+  if (!bearer) return false;
+  const row = await env.DB.prepare("SELECT ingest_token FROM runs WHERE id = ?")
+    .bind(runId)
+    .first<{ ingest_token: string | null }>();
+  return !!row?.ingest_token && row.ingest_token === bearer;
+}
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -28,7 +44,8 @@ export default {
     if (path === "/api/runs" && request.method === "POST") {
       const { url: target, mode } = (await request.json()) as { url?: string; mode?: string };
       if (!target) return Response.json({ error: "url required" }, { status: 400 });
-      const runMode = mode === "agent" ? "agent" : mode === "probe" ? "probe" : "scripted";
+      const runMode =
+        mode === "uplift" ? "uplift" : mode === "agent" ? "agent" : mode === "probe" ? "probe" : "scripted";
       const id = crypto.randomUUID();
       await env.DB.prepare("INSERT INTO runs (id, url, status, mode, created_at) VALUES (?, ?, 'pending', ?, ?)")
         .bind(id, target, runMode, Date.now())
@@ -45,6 +62,36 @@ export default {
       const runId = wsMatch[1];
       const stub = env.RUN.get(env.RUN.idFromName(runId));
       return stub.fetch(request);
+    }
+
+    // Ingest: the sandbox agent pushes a milestone event. -> the run's DO.
+    const evMatch = path.match(INGEST_EVENT);
+    if (evMatch && request.method === "POST") {
+      const runId = evMatch[1];
+      if (!(await ingestAuthed(env, runId, request))) return new Response("Unauthorized", { status: 401 });
+      let ev: unknown;
+      try {
+        ev = await request.json();
+      } catch {
+        return Response.json({ error: "invalid json" }, { status: 400 });
+      }
+      const stub = env.RUN.get(env.RUN.idFromName(runId));
+      await stub.ingestEvent(ev);
+      return Response.json({ ok: true });
+    }
+
+    // Ingest: the sandbox agent uploads a deliverable. -> R2 + notify the DO.
+    const artMatch = path.match(INGEST_ARTIFACT);
+    if (artMatch && (request.method === "PUT" || request.method === "POST")) {
+      const runId = artMatch[1];
+      const rel = artMatch[2];
+      if (!(await ingestAuthed(env, runId, request))) return new Response("Unauthorized", { status: 401 });
+      const key = `artifacts/${runId}/${rel}`;
+      const contentType = request.headers.get("content-type") ?? "application/octet-stream";
+      await env.BUCKET.put(key, request.body, { httpMetadata: { contentType } });
+      const stub = env.RUN.get(env.RUN.idFromName(runId));
+      await stub.ingestArtifact(rel, contentType);
+      return Response.json({ ok: true, key });
     }
 
     // Artifacts: serve from R2. /api/artifacts/<key...>  ->  R2 key artifacts/<key...>

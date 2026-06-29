@@ -49,6 +49,13 @@ export class RunSession extends DurableObject<Env> {
   private project = KNACK_PROJECT;
   private timers: number[] = [];
   private ticker?: number;
+  // M5: real uplift run state. When set, the panel emitters use real artifacts
+  // (pushed by the sandbox agent via the ingest endpoints) instead of the knack
+  // demo constants.
+  private uplift = false;
+  private realTensions: { n: string; text: string }[] = [];
+  private realBrand?: { brandReviewUrl: string; tensions: { n: string; text: string }[] };
+  private realVariants?: { sharedFixes: string[]; variants: VariantCard[] };
 
   async fetch(request: Request): Promise<Response> {
     const runId = new URL(request.url).pathname.match(/^\/api\/runs\/([^/]+)\/ws$/)?.[1] ?? "";
@@ -123,6 +130,7 @@ export class RunSession extends DurableObject<Env> {
       .bind(this.project, runId)
       .run();
 
+    if (row?.mode === "uplift") return this.runUplift(url);
     if (row?.mode === "agent" || row?.mode === "probe") return this.runAgent(url, row.mode === "probe");
     return this.runScripted(url, runId);
   }
@@ -240,6 +248,150 @@ export class RunSession extends DurableObject<Env> {
     }
   }
 
+  /* ---- M5 real uplift run: stardust:uplift in the sandbox, screens driven by
+     milestones + artifacts the agent pushes to the ingest endpoints. The SSE
+     stream feeds only the conversation narration. ---- */
+
+  private async runUplift(url: string): Promise<void> {
+    this.uplift = true;
+    const { ANTHROPIC_API_KEY, STARDUST_AGENT_ID, STARDUST_ENVIRONMENT_ID } = this.env;
+
+    const tasks = knackTasks();
+    tasks[0].status = "run";
+    await this.emit({ t: "run.started", runId: this.runId, url, projectName: this.project, seed: "—" });
+    await this.emit({ t: "phase", phase: "prototype" });
+    await this.emit({ t: "tasks.init", tasks });
+    await this.emit({ t: "progress", value: 5 });
+    await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock: "⏱ uplift · live" } });
+    await this.emit({ t: "screen", screen: "working" });
+
+    if (!ANTHROPIC_API_KEY || !STARDUST_AGENT_ID || !STARDUST_ENVIRONMENT_ID) {
+      await this.emit({ t: "message.append", message: { id: "no-creds", role: "agent", lead: "Managed Agents not configured. Run agent/setup.mjs and restart dev." } });
+      return this.fail("missing Managed Agents credentials");
+    }
+    const creds: MaCreds = { apiKey: ANTHROPIC_API_KEY, agentId: STARDUST_AGENT_ID, environmentId: STARDUST_ENVIRONMENT_ID };
+
+    // Per-run ingest token — the agent authorizes its pushes with it.
+    const token = crypto.randomUUID().replace(/-/g, "");
+    await this.env.DB.prepare("UPDATE runs SET ingest_token = ? WHERE id = ?").bind(token, this.runId).run();
+
+    const base = this.env.INGEST_BASE ?? "http://host.docker.internal:5173";
+    const ingest = `${base}/api/ingest/${this.runId}`;
+    const prompt =
+      `Redesign ${url} for presales. Run stardust:uplift to completion, non-interactively.\n\n` +
+      `INGEST — push progress + deliverables here so the web UI updates live. ` +
+      `Add this header to every ingest call: Authorization: Bearer ${token}\n` +
+      `1) Milestones — POST ${ingest}/event with content-type application/json, one JSON object per ` +
+      `milestone, exactly the shapes defined in your system prompt (extract.started/seed/tensions/` +
+      `brand_ready, direct.variants_ready, prototype.variant_done, done). Send each the moment it happens.\n` +
+      `2) Deliverables — PUT ${ingest}/artifact/<relative-path> with the file bytes and a correct ` +
+      `content-type, preserving paths relative to /mnt/session/outputs (so brand-review.html, its ` +
+      `assets/*, the three home-*-proposed.html, and assets/thumb-{A,B,C}.png all resolve). Upload the ` +
+      `brand surface as soon as it exists, each variant as it finishes.\n` +
+      `Paths in milestone JSON must match the artifact paths you upload. Begin now.`;
+
+    try {
+      const sessionId = await createSession(creds, `stardust uplift · ${this.project}`, { url, runId: this.runId });
+      await this.emit({ t: "message.append", message: { id: "sess", role: "agent", lead: `Session started — <b>${sessionId.slice(0, 8)}</b>. Reading ${this.project}…` } });
+      await sendUserMessage(creds, sessionId, prompt);
+
+      for await (const ev of streamEvents(creds, sessionId)) {
+        if (ev.type === "agent.message") {
+          const content = (ev as { content?: { text?: string }[] }).content ?? [];
+          const text = content.map((b) => b.text ?? "").join("").trim();
+          if (text) await this.emit({ t: "message.append", message: { id: `m-${this.seq}`, role: "agent", lead: text } });
+        } else if (ev.type === "agent.tool_use") {
+          const name = (ev as { name?: string }).name ?? "tool";
+          await this.emit({ t: "message.append", message: { id: `t-${this.seq}`, role: "agent", lead: `› ${name}` } });
+        } else if (ev.type === "session.status_idle") {
+          if (this.runId) await this.env.DB.prepare("UPDATE runs SET status = 'done' WHERE id = ?").bind(this.runId).run();
+          await this.emit({ t: "message.append", message: { id: "fin", role: "agent", lead: "✓ stardust finished." } });
+          await this.emit({ t: "run.done" });
+          break;
+        } else if (ev.type === "session.error") {
+          await this.fail(`session error: ${JSON.stringify((ev as { error?: unknown }).error ?? ev)}`);
+          break;
+        }
+      }
+    } catch (e) {
+      await this.emit({ t: "message.append", message: { id: "err", role: "agent", lead: `Run error: ${String((e as Error).message ?? e)}` } });
+      await this.fail(String(e));
+    }
+  }
+
+  /** R2-served URL for an artifact this run uploaded, by its relative path. */
+  private art(p: string): string {
+    return `/api/artifacts/${this.runId}/${String(p).replace(/^\/+/, "")}`;
+  }
+
+  private mapVariants(arr: unknown[]): VariantCard[] {
+    return (arr ?? []).map((raw) => {
+      const m = raw as { id: VariantId; title?: string; pitch?: string; whatif?: string; role?: string; file: string; thumb: string };
+      const segWord = String(m.role ?? m.title ?? m.id).split(/[ ·]/)[0].toLowerCase();
+      return {
+        id: m.id,
+        title: m.title ?? `Variant ${m.id}`,
+        pitch: m.pitch ?? "",
+        thumb: this.art(m.thumb),
+        src: this.art(m.file),
+        segLabel: `${m.id} · ${segWord}`,
+        segWord,
+        role: m.role ?? "",
+        recommended: m.id === "C",
+        whatif: m.id === "A" ? undefined : m.whatif,
+        faithful: m.id === "A" ? m.pitch : undefined,
+      } satisfies VariantCard;
+    });
+  }
+
+  /** Called by the Worker when the sandbox agent POSTs a milestone. */
+  async ingestEvent(ev: unknown): Promise<void> {
+    const e = (ev ?? {}) as { phase?: string; event?: string; seed?: string; items?: { n: string; text: string }[]; brandReview?: string; sharedFixes?: string[]; variants?: unknown[]; variant?: string };
+    const tick = async (id: string, next: string | null, progress: number, status?: string) => {
+      await this.emit({ t: "task", id, status: "done" });
+      if (next) await this.emit({ t: "task", id: next, status: "run" });
+      await this.emit({ t: "progress", value: progress });
+      if (status) await this.emit({ t: "status", text: status });
+    };
+
+    if (e.phase === "extract" && e.event === "started") {
+      await this.emit({ t: "status", text: "reading the site" });
+    } else if (e.phase === "extract" && e.event === "seed") {
+      await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock: `⏱ seed ${e.seed ?? ""}` } });
+      await tick("crawl", "read", 22, "extracting brand surface");
+    } else if (e.phase === "extract" && e.event === "tensions") {
+      this.realTensions = e.items ?? [];
+      await tick("read", "extract", 40, "identifying tensions");
+    } else if (e.phase === "extract" && e.event === "brand_ready") {
+      this.realBrand = { brandReviewUrl: this.art(e.brandReview ?? "brand-review.html"), tensions: this.realTensions };
+      await tick("extract", "analyze", 58, "brand surface captured");
+      await this.emit({ t: "message.append", message: { id: `brand-${this.seq}`, role: "agent", lead: "Brand surface captured — open the snapshot." } });
+      await this.emit({ t: "snapshot.ready" });
+    } else if (e.phase === "direct" && e.event === "variants_ready") {
+      this.realVariants = { sharedFixes: e.sharedFixes ?? [], variants: this.mapVariants(e.variants ?? []) };
+      await tick("analyze", "generate", 74, "three directions composed");
+      await this.emit({ t: "message.append", message: { id: `var-${this.seq}`, role: "agent", lead: "Three directions ready." } });
+    } else if (e.phase === "prototype" && e.event === "variant_done") {
+      await this.emit({ t: "status", text: `variant ${e.variant ?? ""} rendered` });
+      await this.emit({ t: "progress", value: 88 });
+    } else if (e.phase === "done") {
+      await this.emit({ t: "task", id: "generate", status: "done" });
+      await this.emit({ t: "task", id: "validate", status: "done" });
+      await this.emit({ t: "progress", value: 100 });
+      await this.emit({ t: "snapshot.ready" });
+    }
+  }
+
+  /** Called by the Worker when the sandbox agent uploads an artifact. */
+  async ingestArtifact(rel: string, _contentType: string): Promise<void> {
+    // R2 write is done by the Worker; if a proposed variant arrives while its
+    // workspace is open, hot-swap the preview (M6 leans on this). For M5 we just
+    // note the brand surface / variants landing.
+    if (/proposed\.html$/.test(rel) || /brand-review\.html$/.test(rel)) {
+      await this.emit({ t: "rail", rail: { swatches: this.realVariants?.variants.length ? KNACK_PALETTE : [], busy: true, clock: `⏱ received ${rel.split("/").pop()}` } });
+    }
+  }
+
   private async fail(reason: string): Promise<void> {
     await this.emit({ t: "error", message: reason });
     await this.emit({ t: "run.done" });
@@ -248,48 +400,60 @@ export class RunSession extends DurableObject<Env> {
 
   private async toBrand(): Promise<void> {
     this.clearTimers();
-    const messages: Message[] = [
-      {
-        id: "brand-lead",
-        role: "agent",
-        lead: "Here's your brand surface, captured from a live render.",
-        body: [
-          "Magenta leads the palette but barely shows on screen, the type scale is flat, and there are 21 different CTA labels. A solid product, under-showing itself.",
-          "Open the full <b>audit</b> for the scorecard and findings, or move on to directions.",
-        ],
-        seed: KNACK_SEED,
-      },
-      { id: "brand-tensions", role: "agent", plan: { tag: "3 tensions", steps: KNACK_TENSIONS } },
-    ];
+    const url = this.realBrand?.brandReviewUrl ?? brandReviewUrl;
+    const tensions = this.realBrand?.tensions?.length ? this.realBrand.tensions : KNACK_TENSIONS;
+    const messages: Message[] = this.uplift
+      ? [
+          { id: "brand-lead", role: "agent", lead: "Here's the brand surface, captured from a live render of the site.", body: ["Open the full audit for the scorecard, or move on to directions."] },
+          { id: "brand-tensions", role: "agent", plan: { tag: `${tensions.length} tensions`, steps: tensions } },
+        ]
+      : [
+          {
+            id: "brand-lead",
+            role: "agent",
+            lead: "Here's your brand surface, captured from a live render.",
+            body: [
+              "Magenta leads the palette but barely shows on screen, the type scale is flat, and there are 21 different CTA labels. A solid product, under-showing itself.",
+              "Open the full <b>audit</b> for the scorecard and findings, or move on to directions.",
+            ],
+            seed: KNACK_SEED,
+          },
+          { id: "brand-tensions", role: "agent", plan: { tag: "3 tensions", steps: KNACK_TENSIONS } },
+        ];
     await this.emit({ t: "messages", messages });
-    await this.emit({ t: "panel.brand", brandReviewUrl, tensions: KNACK_TENSIONS });
-    await this.emit({ t: "rail", rail: rail({ note: "brand surface captured", tensions: 5, clock: "⏱ 7 pages · captured" }) });
+    await this.emit({ t: "panel.brand", brandReviewUrl: url, tensions });
+    await this.emit({ t: "rail", rail: rail({ note: "brand surface captured", tensions: tensions.length, clock: "⏱ captured" }) });
     await this.emit({ t: "screen", screen: "brand" });
   }
 
   private async toVariants(): Promise<void> {
     this.clearTimers();
-    const messages: Message[] = [
-      {
-        id: "var-lead",
-        role: "agent",
-        lead: "Three directions, all brand-faithful — palette and Inter kept, the 5 tensions fixed in each.",
-        body: [
-          "They differ in their <b>bet</b>: A plays it safe, B amplifies the magenta, C makes motion the identity. My pick is <b>C</b>.",
-          "Each card shows what's fixed and the “what if” behind it. Open any to iterate.",
-        ],
-        seed: KNACK_SEED,
-      },
-    ];
+    const cards = this.realVariants?.variants?.length ? this.realVariants.variants : variants;
+    const sharedFixes = this.realVariants?.sharedFixes?.length ? this.realVariants.sharedFixes : KNACK_SHARED_FIXES;
+    const messages: Message[] = this.uplift
+      ? [{ id: "var-lead", role: "agent", lead: "Three directions, all brand-faithful — the shared tensions fixed in each.", body: ["They differ in their bet. Open any card to iterate on it."] }]
+      : [
+          {
+            id: "var-lead",
+            role: "agent",
+            lead: "Three directions, all brand-faithful — palette and Inter kept, the 5 tensions fixed in each.",
+            body: [
+              "They differ in their <b>bet</b>: A plays it safe, B amplifies the magenta, C makes motion the identity. My pick is <b>C</b>.",
+              "Each card shows what's fixed and the “what if” behind it. Open any to iterate.",
+            ],
+            seed: KNACK_SEED,
+          },
+        ];
     await this.emit({ t: "messages", messages });
-    await this.emit({ t: "panel.variants", sharedFixes: KNACK_SHARED_FIXES, variants });
-    await this.emit({ t: "rail", rail: rail({ signature: "watch it build", tensions: 5, clock: "⏱ 3 directions ready" }) });
+    await this.emit({ t: "panel.variants", sharedFixes, variants: cards });
+    await this.emit({ t: "rail", rail: rail({ signature: "watch it build", tensions: sharedFixes.length, clock: "⏱ 3 directions ready" }) });
     await this.emit({ t: "screen", screen: "variants" });
   }
 
   private async toWorkspace(id: VariantId): Promise<void> {
     this.clearTimers();
-    const card = variants.find((v) => v.id === id) ?? variants[2];
+    const cards = this.realVariants?.variants?.length ? this.realVariants.variants : variants;
+    const card = cards.find((v) => v.id === id) ?? cards[cards.length - 1];
     const messages: Message[] = [
       {
         id: "ws-lead",
@@ -298,7 +462,7 @@ export class RunSession extends DurableObject<Env> {
         body: ["When it's right, hit Deploy."],
       },
     ];
-    await this.emit({ t: "panel.workspace", activeVariant: id, variants });
+    await this.emit({ t: "panel.workspace", activeVariant: id, variants: cards });
     await this.emit({ t: "messages", messages });
     await this.emit({ t: "rail", rail: rail({ signature: "watch it build", variant: card.segLabel, clock: "⏱ ready to iterate" }) });
     await this.emit({ t: "screen", screen: "workspace" });

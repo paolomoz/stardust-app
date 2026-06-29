@@ -6,4 +6,7 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 // Artifacts are served from R2 via /api/artifacts/* (no publicDir needed).
 export default defineConfig({
   plugins: [cloudflare()],
+  // Allow the sandbox container to reach the Worker's ingest endpoints via the
+  // Docker Desktop host gateway (Vite blocks unknown Host headers otherwise).
+  server: { host: true, allowedHosts: ["host.docker.internal"] },
 });

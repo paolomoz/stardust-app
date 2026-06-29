@@ -25,6 +25,10 @@ if (!key) {
   process.exit(1);
 }
 const selfHosted = process.argv.includes("--self-hosted");
+// --agent-only: recreate just the agent (e.g. after editing system-prompt.md)
+// and reuse the existing environment from agent.local.json — so a running
+// poller bound to that environment keeps working.
+const agentOnly = process.argv.includes("--agent-only");
 
 const headers = {
   "x-api-key": key,
@@ -51,34 +55,53 @@ const agent = await post("/agents", {
 });
 console.log(`  agent ${agent.id} (v${agent.version})`);
 
-console.log(`Creating ${selfHosted ? "self-hosted" : "cloud"} environment…`);
-const env = await post("/environments", {
-  name: selfHosted ? "stardust-self-hosted" : "stardust-cloud",
-  config: selfHosted ? { type: "self_hosted" } : { type: "cloud", networking: { type: "unrestricted" } },
-});
-console.log(`  environment ${env.id}`);
+let env;
+if (agentOnly) {
+  const prev = existsSync(join(HERE, "agent.local.json"))
+    ? JSON.parse(readFileSync(join(HERE, "agent.local.json"), "utf8"))
+    : null;
+  if (!prev?.environmentId) {
+    console.error("--agent-only needs an existing agent/agent.local.json with environmentId. Run setup once without it first.");
+    process.exit(1);
+  }
+  env = { id: prev.environmentId };
+  console.log(`Reusing environment ${env.id} (--agent-only)`);
+} else {
+  console.log(`Creating ${selfHosted ? "self-hosted" : "cloud"} environment…`);
+  env = await post("/environments", {
+    name: selfHosted ? "stardust-self-hosted" : "stardust-cloud",
+    config: selfHosted ? { type: "self_hosted" } : { type: "cloud", networking: { type: "unrestricted" } },
+  });
+  console.log(`  environment ${env.id}`);
+}
 
 // Persist for reference.
 const out = {
   agentId: agent.id,
   agentVersion: agent.version,
   environmentId: env.id,
-  environmentType: selfHosted ? "self_hosted" : "cloud",
+  environmentType: agentOnly
+    ? (JSON.parse(readFileSync(join(HERE, "agent.local.json"), "utf8")).environmentType ?? "self_hosted")
+    : selfHosted ? "self_hosted" : "cloud",
 };
 writeFileSync(join(HERE, "agent.local.json"), JSON.stringify(out, null, 2) + "\n");
 console.log("Wrote agent/agent.local.json");
 
 // Append to web/.dev.vars so `vite dev` (Miniflare) exposes them to the Worker.
 const devVars = join(HERE, "..", "web", ".dev.vars");
+// INGEST_BASE: where the sandbox container reaches this Worker. Preserve an
+// existing value; default to Docker Desktop's host gateway on the dev port.
+const existing = existsSync(devVars) ? readFileSync(devVars, "utf8") : "";
+const prevIngest = existing.split("\n").find((l) => /^INGEST_BASE=/.test(l));
 const lines = [
   `ANTHROPIC_API_KEY=${key}`,
   `STARDUST_AGENT_ID=${agent.id}`,
   `STARDUST_ENVIRONMENT_ID=${env.id}`,
+  prevIngest ?? `INGEST_BASE=http://host.docker.internal:5173`,
 ];
-const existing = existsSync(devVars) ? readFileSync(devVars, "utf8") : "";
 const kept = existing
   .split("\n")
-  .filter((l) => l.trim() && !/^(ANTHROPIC_API_KEY|STARDUST_AGENT_ID|STARDUST_ENVIRONMENT_ID)=/.test(l));
+  .filter((l) => l.trim() && !/^(ANTHROPIC_API_KEY|STARDUST_AGENT_ID|STARDUST_ENVIRONMENT_ID|INGEST_BASE)=/.test(l));
 writeFileSync(devVars, [...kept, ...lines].join("\n") + "\n");
 console.log("Updated web/.dev.vars");
 

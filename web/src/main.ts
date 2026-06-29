@@ -15,8 +15,10 @@ import { beginRun, navTo, openVariant, sendMessage, resetRun } from "./driver/li
 
 // Dev affordance: /?mode=agent runs a real Managed Agents session;
 // /?mode=probe runs a cheap skill-load probe (reads SKILL.md, no rendering).
+// /?mode=uplift is the real product run (stardust:uplift in the sandbox).
 const _mode = new URLSearchParams(location.search).get("mode");
-const runMode = _mode === "agent" ? "agent" : _mode === "probe" ? "probe" : "scripted";
+const runMode =
+  _mode === "uplift" ? "uplift" : _mode === "agent" ? "agent" : _mode === "probe" ? "probe" : "scripted";
 
 const app: App = {
   start: (url) => void beginRun(url, runMode),
