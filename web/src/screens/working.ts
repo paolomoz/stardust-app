@@ -68,6 +68,11 @@ export function working(state: RunState, app: App): Screen {
   });
 
   const update = (s: RunState) => {
+    // if the task set arrived/changed after mount, (re)build the rows
+    const container = el.querySelector<HTMLElement>(".tasks");
+    if (container && container.querySelectorAll(".task").length !== s.tasks.length) {
+      container.innerHTML = s.tasks.map(taskRow).join("");
+    }
     // tick the task rows in place
     for (const t of s.tasks) {
       const row = el.querySelector<HTMLElement>(`.task[data-task="${t.id}"]`);

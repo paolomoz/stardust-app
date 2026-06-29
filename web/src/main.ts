@@ -11,29 +11,18 @@ import { working } from "./screens/working";
 import { brand } from "./screens/brand";
 import { variants } from "./screens/variants";
 import { workspace } from "./screens/workspace";
-import {
-  beginRun,
-  toBrand,
-  toVariants,
-  toWorkspace,
-  composerReply,
-  resetRun,
-} from "./driver/mockDriver";
+import { beginRun, navTo, openVariant, sendMessage, resetRun } from "./driver/liveDriver";
 
 const app: App = {
-  start: (url) => beginRun(url),
-  goSnapshot: () => toBrand(),
-  goVariants: () => toVariants(),
-  openVariant: (id) => toWorkspace(id),
-  goto: (screen) => {
-    if (screen === "brand") toBrand();
-    else if (screen === "variants") toVariants();
-    else store.set({ screen });
-  },
+  start: (url) => void beginRun(url),
+  goSnapshot: () => navTo("brand"),
+  goVariants: () => navTo("variants"),
+  openVariant: (id) => openVariant(id),
+  goto: (screen) => navTo(screen),
   restart: () => resetRun(),
   setVariant: (id: VariantId) => store.set({ activeVariant: id }),
   setViewport: (v) => store.set({ viewport: v }),
-  send: (screen: ScreenId, text) => composerReply(screen, text),
+  send: (screen: ScreenId, text) => sendMessage(screen, text),
 };
 
 const factories: Record<ScreenId, (s: RunState, a: App) => Screen | HTMLElement> = {

@@ -1,13 +1,9 @@
 import { defineConfig } from "vite";
-import { resolve } from "node:path";
+import { cloudflare } from "@cloudflare/vite-plugin";
 
-// The real knack artifacts (variant HTML, thumbnails, brand-review) live in the
-// frozen prototype tree. Serve them at the web root for M1 so the mock-driven
-// flow exercises the genuine artifacts without copying 18MB into web/.
-// In M2+ these come from R2 via the Worker instead.
+// The Cloudflare plugin runs the SPA (HMR) AND the Worker + bindings (DO/D1/R2)
+// in Miniflare under one `vite dev`. It reads main/assets from wrangler.jsonc.
+// Artifacts are served from R2 via /api/artifacts/* (no publicDir needed).
 export default defineConfig({
-  root: __dirname,
-  publicDir: resolve(__dirname, "../prototypes"),
-  server: { port: 5173, fs: { allow: [resolve(__dirname, "..")] } },
-  build: { outDir: "dist", emptyOutDir: true },
+  plugins: [cloudflare()],
 });
