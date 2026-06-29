@@ -34,6 +34,8 @@
 .corner { position: absolute; bottom: 20px; left: 0; right: 0; text-align: center; font: 500 11px/1 var(--mono); letter-spacing: 0.12em; color: var(--fg-faint); z-index: 1; }
 
 /* ---- working (studio) ---- */
+.agentlog { display: flex; flex-direction: column; gap: 16px; }
+.agentlog:not(:empty) { margin-top: 16px; }
 .tasks { display: flex; flex-direction: column; gap: 7px; }
 .task { display: flex; align-items: flex-start; gap: 10px; padding: 9px 11px; border-radius: 10px; border: 1px solid var(--hairline-soft); background: var(--surface); transition: opacity .4s var(--ease), box-shadow .3s var(--ease); }
 .task .ti { width: 24px; height: 24px; border-radius: 7px; background: var(--sunken); display: grid; place-items: center; flex: none; color: var(--fg-dim); }

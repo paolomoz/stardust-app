@@ -8,6 +8,7 @@ import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./index";
 import type { Message, RailState, ScreenId, VariantCard, VariantId } from "../state";
 import type { ClientCommand, ServerEvent } from "../shared/protocol";
+import { createSession, sendUserMessage, streamEvents, type MaCreds } from "./managedAgents";
 import {
   KNACK_PALETTE,
   KNACK_PROJECT,
@@ -113,13 +114,22 @@ export class RunSession extends DurableObject<Env> {
 
   private async start(runId: string): Promise<void> {
     this.runId = runId;
-    const row = await this.env.DB.prepare("SELECT url FROM runs WHERE id = ?").bind(runId).first<{ url: string }>();
+    const row = await this.env.DB.prepare("SELECT url, mode FROM runs WHERE id = ?")
+      .bind(runId)
+      .first<{ url: string; mode: string }>();
     const url = row?.url ?? "https://www.knack.com/";
     this.project = deriveProject(url);
     await this.env.DB.prepare("UPDATE runs SET status = 'running', project = ? WHERE id = ?")
       .bind(this.project, runId)
       .run();
 
+    if (row?.mode === "agent") return this.runAgent(url);
+    return this.runScripted(url, runId);
+  }
+
+  /* ---- M2 scripted demo run ---- */
+
+  private async runScripted(url: string, runId: string): Promise<void> {
     const tasks = knackTasks();
     tasks[0].status = "run";
     // Content first, screen last — so the screen mounts with its data present.
@@ -154,6 +164,68 @@ export class RunSession extends DurableObject<Env> {
       await this.emit({ t: "snapshot.ready" });
     });
     this.schedule(6800, () => this.toBrand());
+  }
+
+  /* ---- M3+ real run: a Managed Agents session, streamed to the UI ---- */
+
+  private async runAgent(url: string): Promise<void> {
+    const { ANTHROPIC_API_KEY, STARDUST_AGENT_ID, STARDUST_ENVIRONMENT_ID } = this.env;
+    await this.emit({ t: "run.started", runId: this.runId, url, projectName: this.project, seed: KNACK_SEED });
+    await this.emit({ t: "phase", phase: "prototype" });
+    await this.emit({ t: "tasks.init", tasks: [] });
+    await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock: "⏱ agent session · live" } });
+    await this.emit({ t: "screen", screen: "working" });
+
+    if (!ANTHROPIC_API_KEY || !STARDUST_AGENT_ID || !STARDUST_ENVIRONMENT_ID) {
+      await this.emit({
+        t: "message.append",
+        message: { id: "no-creds", role: "agent", lead: "Managed Agents not configured. Run agent/setup.mjs and restart dev (see agent/README.md)." },
+      });
+      await this.fail("missing Managed Agents credentials");
+      return;
+    }
+    const creds: MaCreds = { apiKey: ANTHROPIC_API_KEY, agentId: STARDUST_AGENT_ID, environmentId: STARDUST_ENVIRONMENT_ID };
+
+    // M3 connectivity check — proves session + tools + SSE relay without skills.
+    // M5 swaps this for: `Redesign ${url}. Run stardust:uplift <URL> to completion…`
+    const prompt =
+      "Connectivity check from the stardust web app. In one short sentence, confirm you're running. " +
+      "Then create the file /mnt/session/outputs/hello.txt containing 'stardust online' and stop.";
+
+    try {
+      const sessionId = await createSession(creds, `stardust · ${this.project}`, { url });
+      await this.emit({ t: "message.append", message: { id: "sess", role: "agent", lead: `Session started — <b>${sessionId.slice(0, 8)}</b>. Working…` } });
+      await sendUserMessage(creds, sessionId, prompt);
+
+      for await (const ev of streamEvents(creds, sessionId)) {
+        if (ev.type === "agent.message") {
+          const content = (ev as { content?: { text?: string }[] }).content ?? [];
+          const text = content.map((b) => b.text ?? "").join("").trim();
+          if (text) await this.emit({ t: "message.append", message: { id: `m-${this.seq}`, role: "agent", lead: text } });
+        } else if (ev.type === "agent.tool_use") {
+          const name = (ev as { name?: string }).name ?? "tool";
+          await this.emit({ t: "message.append", message: { id: `t-${this.seq}`, role: "agent", lead: `› tool: <b>${name}</b>` } });
+        } else if (ev.type === "session.status_idle") {
+          await this.emit({ t: "message.append", message: { id: "fin", role: "agent", lead: "✓ Agent finished." } });
+          await this.emit({ t: "rail", rail: { swatches: KNACK_PALETTE, note: "session idle", clock: "⏱ done" } });
+          await this.emit({ t: "run.done" });
+          await this.env.DB.prepare("UPDATE runs SET status = 'done' WHERE id = ?").bind(this.runId).run();
+          break;
+        } else if (ev.type === "session.status_terminated") {
+          await this.fail("session terminated");
+          break;
+        }
+      }
+    } catch (e) {
+      await this.emit({ t: "message.append", message: { id: "err", role: "agent", lead: `Run error: ${String((e as Error).message ?? e)}` } });
+      await this.fail(String(e));
+    }
+  }
+
+  private async fail(reason: string): Promise<void> {
+    await this.emit({ t: "error", message: reason });
+    await this.emit({ t: "run.done" });
+    await this.env.DB.prepare("UPDATE runs SET status = 'error' WHERE id = ?").bind(this.runId).run();
   }
 
   private async toBrand(): Promise<void> {

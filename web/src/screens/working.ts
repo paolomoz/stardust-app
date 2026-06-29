@@ -4,8 +4,9 @@ import { h, esc } from "../dom";
 import type { App, Screen } from "../controller";
 import type { RunState, TaskItem } from "../state";
 import { topbar, rail } from "../components/shell";
-import { convHead, composer } from "../components/conversation";
+import { convHead, composer, message } from "../components/conversation";
 import { bigStar, taskIcons } from "../components/icons";
+import { KNACK_SEED_NOTE } from "../data/knack";
 
 function taskRow(t: TaskItem): string {
   const st =
@@ -36,6 +37,7 @@ export function working(state: RunState, app: App): Screen {
             <p>This normally takes a few minutes. I'll show the snapshot the moment it's ready.</p>
           </div>
           <div class="tasks stagger">${state.tasks.map(taskRow).join("")}</div>
+          <div class="agentlog">${state.messages.map((m) => message(m, KNACK_SEED_NOTE)).join("")}</div>
         </div>
         ${composer("add a note for stardust…", `Working — in reality a few minutes. <button class="skip mono" data-act="snapshot" style="color:var(--fg-dim)">see snapshot →</button>`)}
       </section>
@@ -88,6 +90,9 @@ export function working(state: RunState, app: App): Screen {
     if (fill) fill.style.width = `${s.progress}%`;
     const snap = el.querySelector<HTMLButtonElement>("#snapBtn");
     if (snap) snap.disabled = !s.snapshotReady;
+    // agent-mode narration
+    const log = el.querySelector<HTMLElement>(".agentlog");
+    if (log) log.innerHTML = s.messages.map((m) => message(m, KNACK_SEED_NOTE)).join("");
   };
 
   return { el, update };

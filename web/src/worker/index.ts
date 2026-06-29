@@ -10,6 +10,11 @@ export interface Env {
   DB: D1Database;
   BUCKET: R2Bucket;
   ASSETS: Fetcher;
+  // Managed Agents (from web/.dev.vars locally / secrets in prod). Optional:
+  // when absent, runs fall back to the scripted demo.
+  ANTHROPIC_API_KEY?: string;
+  STARDUST_AGENT_ID?: string;
+  STARDUST_ENVIRONMENT_ID?: string;
 }
 
 const WS_PATH = /^\/api\/runs\/([^/]+)\/ws$/;
@@ -21,11 +26,12 @@ export default {
 
     // Create a run.
     if (path === "/api/runs" && request.method === "POST") {
-      const { url: target } = (await request.json()) as { url?: string };
+      const { url: target, mode } = (await request.json()) as { url?: string; mode?: string };
       if (!target) return Response.json({ error: "url required" }, { status: 400 });
+      const runMode = mode === "agent" ? "agent" : "scripted";
       const id = crypto.randomUUID();
-      await env.DB.prepare("INSERT INTO runs (id, url, status, created_at) VALUES (?, ?, 'pending', ?)")
-        .bind(id, target, Date.now())
+      await env.DB.prepare("INSERT INTO runs (id, url, status, mode, created_at) VALUES (?, ?, 'pending', ?, ?)")
+        .bind(id, target, runMode, Date.now())
         .run();
       return Response.json({ id }, { status: 201 });
     }
