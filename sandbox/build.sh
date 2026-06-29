@@ -21,6 +21,12 @@ mkdir -p "$HERE/skills/stardust" "$HERE/skills/impeccable"
 rsync -a --delete --exclude '.git' --exclude 'node_modules' --exclude '.DS_Store' "$STARDUST_SRC/" "$HERE/skills/stardust/"
 rsync -a --delete --exclude '.git' --exclude 'node_modules' --exclude '.DS_Store' "$IMPECCABLE_SRC/" "$HERE/skills/impeccable/"
 
+echo "Staging runtime (Cerebras/Gemma open-loop) into build context…"
+RUNTIME_SRC="${RUNTIME_SRC:-$HERE/../runtime}"
+rm -rf "$HERE/runtime"
+mkdir -p "$HERE/runtime"
+rsync -a --delete --exclude '.git' --exclude 'node_modules' --exclude '.DS_Store' "$RUNTIME_SRC/" "$HERE/runtime/"
+
 echo "Building image '$IMAGE'…"
 docker build -t "$IMAGE" "$HERE"
 echo "Done: $IMAGE"

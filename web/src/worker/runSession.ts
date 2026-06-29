@@ -390,7 +390,17 @@ export class RunSession extends DurableObject<Env> {
    *  tasks.init so labels/details reflect the real run, not canned demo copy. */
   async ingestEvent(runId: string, ev: unknown): Promise<void> {
     if (!this.runId) this.runId = runId;
-    const e = (ev ?? {}) as { phase?: string; event?: string; seed?: string; items?: { n: string; text: string }[]; brandReview?: string; sharedFixes?: string[]; variants?: unknown[]; variant?: string };
+    const e = (ev ?? {}) as { type?: string; text?: string; name?: string; phase?: string; event?: string; seed?: string; items?: { n: string; text: string }[]; brandReview?: string; sharedFixes?: string[]; variants?: unknown[]; variant?: string };
+
+    // Narration / tool activity from the open-loop runtime → conversation thread.
+    if (e.type === "narration" && e.text) {
+      await this.emit({ t: "message.append", message: { id: `m-${this.seq}`, role: "agent", lead: e.text } });
+      return;
+    }
+    if (e.type === "tool") {
+      await this.emit({ t: "message.append", message: { id: `t-${this.seq}`, role: "agent", lead: `› ${e.name ?? "tool"}` } });
+      return;
+    }
     const set = (id: string, status?: TaskItem["status"], detail?: string) => {
       const t = this.tasks.find((x) => x.id === id);
       if (!t) return;

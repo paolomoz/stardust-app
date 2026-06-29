@@ -1,0 +1,54 @@
+/* ===========================================================================
+   The agent loop. Model-agnostic: call provider.step, execute tool calls, feed
+   results back, repeat until the agent emits the `done` milestone (or stalls).
+   Narration + tool activity are surfaced to the UI via callbacks. Accumulates
+   token usage for cost reporting.
+   =========================================================================== */
+import { LOCAL_TOOLS } from "./tools.mjs";
+
+export async function runLoop({ provider, tools, toolSpecs, system, task, onNarration, onTool, onUsage, maxSteps = 240, maxNudges = 3 }) {
+  const messages = [
+    { role: "system", content: system },
+    { role: "user", content: task },
+  ];
+  const usage = { prompt: 0, completion: 0, total: 0, calls: 0 };
+  let done = false;
+  let nudges = 0;
+
+  for (let step = 0; step < maxSteps && !done; step++) {
+    const { message, finish, usage: u } = await provider.step(messages, toolSpecs);
+    usage.prompt += u.prompt_tokens || 0;
+    usage.completion += u.completion_tokens || 0;
+    usage.total += u.total_tokens || 0;
+    usage.calls += 1;
+    onUsage?.(usage);
+
+    // Cerebras returns tool_calls alongside content; keep the assistant turn intact.
+    messages.push({ role: "assistant", content: message.content ?? "", tool_calls: message.tool_calls });
+    if (message.content?.trim()) await onNarration?.(message.content.trim());
+
+    const calls = message.tool_calls || [];
+    if (!calls.length) {
+      // The agent ended a turn without acting. Nudge it back to work a few times
+      // before giving up — the task is autonomous and ends via the done milestone.
+      if (nudges++ < maxNudges) {
+        messages.push({ role: "user", content: "Continue the uplift. When everything is finished and uploaded, call emit_milestone with phase \"done\"." });
+        continue;
+      }
+      break;
+    }
+
+    for (const c of calls) {
+      const name = c.function?.name ?? "";
+      let args = {};
+      try { args = JSON.parse(c.function?.arguments || "{}"); } catch { /* tolerate */ }
+      if (LOCAL_TOOLS.has(name)) await onTool?.(name, args);
+      const fn = tools[name];
+      const result = fn ? await fn(args) : `[error] unknown tool ${name}`;
+      if (name === "emit_milestone" && args?.phase === "done") done = true;
+      messages.push({ role: "tool", tool_call_id: c.id, content: typeof result === "string" ? result : JSON.stringify(result) });
+    }
+  }
+
+  return { usage, done, steps: messages };
+}

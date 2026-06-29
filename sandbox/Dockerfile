@@ -29,6 +29,11 @@ RUN npm init -y >/dev/null 2>&1 \
 # points at /workspace/skills/{stardust,impeccable}.
 COPY skills/ /workspace/skills/
 
+# Bake the open-loop runtime (Cerebras/Gemma path; staged by build.sh into
+# ./runtime). Dependency-free ESM. Default ENTRYPOINT stays the Managed Agents
+# worker; the host runner overrides it with: node /workspace/runtime/agent.mjs
+COPY runtime/ /workspace/runtime/
+
 # Per-session deliverables land here; the host bind-mounts a dir at this path.
 VOLUME /mnt/session/outputs
 
