@@ -211,8 +211,8 @@ export class RunSession extends DurableObject<Env> {
           await this.emit({ t: "run.done" });
           await this.env.DB.prepare("UPDATE runs SET status = 'done' WHERE id = ?").bind(this.runId).run();
           break;
-        } else if (ev.type === "session.status_terminated") {
-          await this.fail("session terminated");
+        } else if (ev.type === "session.error") {
+          await this.fail(`session error: ${JSON.stringify((ev as { error?: unknown }).error ?? ev)}`);
           break;
         }
       }

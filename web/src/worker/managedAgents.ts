@@ -41,7 +41,7 @@ export async function createSession(c: MaCreds, title: string, metadata?: Record
 }
 
 export async function sendUserMessage(c: MaCreds, sessionId: string, text: string): Promise<void> {
-  const res = await fetch(`${API}/sessions/${sessionId}/events`, {
+  const res = await fetch(`${API}/sessions/${sessionId}/events?beta=true`, {
     method: "POST",
     headers: headers(c.apiKey, { "content-type": "application/json" }),
     body: JSON.stringify({ events: [{ type: "user.message", content: [{ type: "text", text }] }] }),
@@ -51,7 +51,7 @@ export async function sendUserMessage(c: MaCreds, sessionId: string, text: strin
 
 /** Open the SSE stream and yield parsed session events until the caller stops. */
 export async function* streamEvents(c: MaCreds, sessionId: string): AsyncGenerator<SessionEvent> {
-  const res = await fetch(`${API}/sessions/${sessionId}/stream`, {
+  const res = await fetch(`${API}/sessions/${sessionId}/events/stream?beta=true`, {
     headers: headers(c.apiKey, { Accept: "text/event-stream" }),
   });
   if (!res.ok || !res.body) throw new Error(`streamEvents ${res.status}: ${await res.text()}`);
