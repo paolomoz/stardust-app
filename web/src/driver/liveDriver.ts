@@ -90,13 +90,14 @@ function command(cmd: ClientCommand): void {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(cmd));
 }
 
-/** Landing → start a run: create it, then stream its events over the WS. */
-export async function beginRun(url: string): Promise<void> {
+/** Landing → start a run: create it, then stream its events over the WS.
+ *  mode "agent" runs a real Managed Agents session; default "scripted" (demo). */
+export async function beginRun(url: string, mode: "scripted" | "agent" = "scripted"): Promise<void> {
   resetRun();
   const res = await fetch("/api/runs", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ url, mode }),
   });
   if (!res.ok) {
     store.set({ messages: [{ id: "err", role: "agent", lead: "Could not start the run. Is the Worker running?" }] });

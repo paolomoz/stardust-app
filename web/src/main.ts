@@ -13,8 +13,11 @@ import { variants } from "./screens/variants";
 import { workspace } from "./screens/workspace";
 import { beginRun, navTo, openVariant, sendMessage, resetRun } from "./driver/liveDriver";
 
+// Dev affordance: /?mode=agent runs a real Managed Agents session.
+const runMode = new URLSearchParams(location.search).get("mode") === "agent" ? "agent" : "scripted";
+
 const app: App = {
-  start: (url) => void beginRun(url),
+  start: (url) => void beginRun(url, runMode),
   goSnapshot: () => navTo("brand"),
   goVariants: () => navTo("variants"),
   openVariant: (id) => openVariant(id),
