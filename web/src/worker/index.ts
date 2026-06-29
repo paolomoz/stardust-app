@@ -19,6 +19,8 @@ export interface Env {
   // Local dev (Docker Desktop): http://host.docker.internal:5174. Prod: the
   // public Worker origin.
   INGEST_BASE?: string;
+  // Host runner that docker-runs the Cerebras/Gemma runtime (mode "cerebras").
+  RUNNER_URL?: string;
 }
 
 const WS_PATH = /^\/api\/runs\/([^/]+)\/ws$/;
@@ -45,7 +47,11 @@ export default {
       const { url: target, mode } = (await request.json()) as { url?: string; mode?: string };
       if (!target) return Response.json({ error: "url required" }, { status: 400 });
       const runMode =
-        mode === "uplift" ? "uplift" : mode === "agent" ? "agent" : mode === "probe" ? "probe" : "scripted";
+        mode === "cerebras" ? "cerebras"
+        : mode === "uplift" ? "uplift"
+        : mode === "agent" ? "agent"
+        : mode === "probe" ? "probe"
+        : "scripted";
       const id = crypto.randomUUID();
       await env.DB.prepare("INSERT INTO runs (id, url, status, mode, created_at) VALUES (?, ?, 'pending', ?, ?)")
         .bind(id, target, runMode, Date.now())

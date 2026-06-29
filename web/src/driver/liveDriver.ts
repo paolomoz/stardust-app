@@ -92,7 +92,7 @@ function command(cmd: ClientCommand): void {
 
 /** Landing → start a run: create it, then stream its events over the WS.
  *  mode "agent" runs a real Managed Agents session; default "scripted" (demo). */
-export async function beginRun(url: string, mode: "scripted" | "agent" | "probe" | "uplift" = "scripted"): Promise<void> {
+export async function beginRun(url: string, mode: "scripted" | "agent" | "probe" | "uplift" | "cerebras" = "scripted"): Promise<void> {
   resetRun();
   const res = await fetch("/api/runs", {
     method: "POST",

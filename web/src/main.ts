@@ -15,10 +15,15 @@ import { beginRun, navTo, openVariant, sendMessage, resetRun, reopenRun } from "
 
 // Dev affordance: /?mode=agent runs a real Managed Agents session;
 // /?mode=probe runs a cheap skill-load probe (reads SKILL.md, no rendering).
-// /?mode=uplift is the real product run (stardust:uplift in the sandbox).
+// /?mode=uplift = real run via Managed Agents; /?mode=cerebras = real run via the
+// open-loop runtime (Gemma 4 on Cerebras).
 const _mode = new URLSearchParams(location.search).get("mode");
 const runMode =
-  _mode === "uplift" ? "uplift" : _mode === "agent" ? "agent" : _mode === "probe" ? "probe" : "scripted";
+  _mode === "cerebras" ? "cerebras"
+  : _mode === "uplift" ? "uplift"
+  : _mode === "agent" ? "agent"
+  : _mode === "probe" ? "probe"
+  : "scripted";
 
 const app: App = {
   start: (url) => void beginRun(url, runMode),
