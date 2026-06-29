@@ -22,7 +22,8 @@ export function makeProvider({ base = DEFAULT_BASE, model = DEFAULT_MODEL, key =
           messages,
           tools,
           tool_choice: "auto",
-          max_tokens: 8192,
+          // High cap so a full-page write_file isn't truncated into an empty file.
+          max_tokens: 16384,
           temperature: 0.4,
         }),
       });

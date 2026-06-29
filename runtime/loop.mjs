@@ -41,10 +41,13 @@ export async function runLoop({ provider, tools, toolSpecs, system, task, onNarr
     for (const c of calls) {
       const name = c.function?.name ?? "";
       let args = {};
-      try { args = JSON.parse(c.function?.arguments || "{}"); } catch { /* tolerate */ }
+      let parseErr = false;
+      try { args = JSON.parse(c.function?.arguments || "{}"); } catch { parseErr = true; }
       if (LOCAL_TOOLS.has(name)) await onTool?.(name, args);
       const fn = tools[name];
-      const result = fn ? await fn(args) : `[error] unknown tool ${name}`;
+      const result = parseErr
+        ? `[error] your ${name} arguments were not valid JSON — they were likely truncated because the output got too long. For a large file, write a first chunk with write_file then add the rest with append_file (or use run_bash with a heredoc).`
+        : fn ? await fn(args) : `[error] unknown tool ${name}`;
       if (name === "emit_milestone" && args?.phase === "done") done = true;
       messages.push({ role: "tool", tool_call_id: c.id, content: typeof result === "string" ? result : JSON.stringify(result) });
     }
