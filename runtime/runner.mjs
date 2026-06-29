@@ -1,12 +1,13 @@
 /* ===========================================================================
-   Host runner for the Cerebras/Gemma path. The Durable Object can't run Docker,
-   so this tiny HTTP service does: POST /run {runId, url, token} -> spawn a
-   sandbox container whose entrypoint is `node /workspace/runtime/agent.mjs`.
+   Host runner for the open-loop runtime. The Durable Object can't run Docker,
+   so this tiny HTTP service does: POST /run {runId, url, token, backend} ->
+   spawn a sandbox container whose entrypoint is `node /workspace/runtime/agent.mjs`.
    Mirrors sandbox/spawn.sh, minus Managed Agents. Run it on the host:
 
      cd app && set -a && . ./.env && set +a && node runtime/runner.mjs
 
-   Reads CEREBRAS_API_KEY from the environment and injects it into the container.
+   Reads the model keys from the environment and injects the right ones per
+   backend (cerebras|bedrock) into the container.
    =========================================================================== */
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -17,31 +18,59 @@ const PORT = Number(process.env.RUNNER_PORT || 8790);
 const IMAGE = process.env.IMAGE || "stardust-sandbox";
 const OUTPUTS_DIR = resolve(process.env.OUTPUTS_DIR || `${process.cwd()}/sandbox/outputs`);
 const INGEST_BASE = process.env.INGEST_BASE || "http://host.docker.internal:5173";
-const MODEL = process.env.CEREBRAS_MODEL || "gemma-4-31b";
-const CEREBRAS_API_KEY = process.env.CEREBRAS_API_KEY;
-const CEREBRAS_BASE_URL = process.env.CEREBRAS_BASE_URL || "";
 
-if (!CEREBRAS_API_KEY) {
-  console.error("CEREBRAS_API_KEY not set (source app/.env first)");
-  process.exit(1);
+// Per-backend config from the host environment (app/.env).
+const CEREBRAS_API_KEY = process.env.CEREBRAS_API_KEY;
+const CEREBRAS_MODEL = process.env.CEREBRAS_MODEL || "gemma-4-31b";
+const CEREBRAS_BASE_URL = process.env.CEREBRAS_BASE_URL || "";
+// Tolerate a Bedrock key pasted as "AWS_BEARER_TOKEN_BEDROCK=ABSK…".
+const BEDROCK_API_KEY = (process.env.BEDROCK_API_KEY || "").replace(/^AWS_BEARER_TOKEN_BEDROCK=/, "").trim();
+const BEDROCK_MODEL = process.env.BEDROCK_MODEL || "us.anthropic.claude-opus-4-8";
+const BEDROCK_REGION = process.env.BEDROCK_REGION || "us-east-1";
+
+/** Env vars injected into the container for the chosen backend. */
+function backendEnv(backend) {
+  if (backend === "bedrock") {
+    if (!BEDROCK_API_KEY) throw new Error("BEDROCK_API_KEY not set on the runner host");
+    return {
+      MODEL_BACKEND: "bedrock",
+      BEDROCK_API_KEY,
+      BEDROCK_MODEL,
+      BEDROCK_REGION,
+      _label: `bedrock ${BEDROCK_MODEL}`,
+    };
+  }
+  if (!CEREBRAS_API_KEY) throw new Error("CEREBRAS_API_KEY not set on the runner host");
+  return {
+    MODEL_BACKEND: "cerebras",
+    CEREBRAS_API_KEY,
+    CEREBRAS_MODEL,
+    ...(CEREBRAS_BASE_URL ? { CEREBRAS_BASE_URL } : {}),
+    _label: `cerebras ${CEREBRAS_MODEL}`,
+  };
 }
 
-function startContainer({ runId, url, token }) {
+function startContainer({ runId, url, token, backend }) {
   const out = `${OUTPUTS_DIR}/${runId}`;
   const work = `${OUTPUTS_DIR}/${runId}-workspace`;
   mkdirSync(out, { recursive: true });
   mkdirSync(work, { recursive: true });
+
+  const be = backendEnv(backend);
+  const { _label, ...envVars } = be;
+  const envArgs = Object.entries({
+    RUN_ID: runId,
+    TARGET_URL: url,
+    INGEST_TOKEN: token,
+    INGEST_BASE,
+    OUTPUTS_DIR: "/mnt/session/outputs",
+    WORKDIR: "/workspace",
+    ...envVars,
+  }).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
+
   const args = [
     "run", "--rm",
-    "-e", `RUN_ID=${runId}`,
-    "-e", `TARGET_URL=${url}`,
-    "-e", `INGEST_TOKEN=${token}`,
-    "-e", `INGEST_BASE=${INGEST_BASE}`,
-    "-e", `CEREBRAS_API_KEY=${CEREBRAS_API_KEY}`,
-    "-e", `CEREBRAS_MODEL=${MODEL}`,
-    ...(CEREBRAS_BASE_URL ? ["-e", `CEREBRAS_BASE_URL=${CEREBRAS_BASE_URL}`] : []),
-    "-e", "OUTPUTS_DIR=/mnt/session/outputs",
-    "-e", "WORKDIR=/workspace",
+    ...envArgs,
     "-v", `${out}:/mnt/session/outputs`,
     "-v", `${work}:/workspace/stardust`,
     "--entrypoint", "node",
@@ -49,7 +78,7 @@ function startContainer({ runId, url, token }) {
   ];
   const child = spawn("docker", args, { stdio: "inherit", detached: true });
   child.unref();
-  console.log(`[runner] spawned ${MODEL} container for run ${runId} (${url})`);
+  console.log(`[runner] spawned [${_label}] container for run ${runId} (${url})`);
 }
 
 createServer((req, res) => {
@@ -61,12 +90,12 @@ createServer((req, res) => {
   req.on("data", (c) => (body += c));
   req.on("end", () => {
     try {
-      const { runId, url, token } = JSON.parse(body || "{}");
+      const { runId, url, token, backend } = JSON.parse(body || "{}");
       if (!runId || !token) throw new Error("runId and token required");
-      startContainer({ runId, url: url || "", token });
+      startContainer({ runId, url: url || "", token, backend: backend || "bedrock" });
       res.writeHead(202, { "content-type": "application/json" }).end(JSON.stringify({ ok: true }));
     } catch (e) {
       res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: String(e.message || e) }));
     }
   });
-}).listen(PORT, () => console.log(`[runner] listening on http://localhost:${PORT}  image=${IMAGE} model=${MODEL} outputs=${OUTPUTS_DIR}`));
+}).listen(PORT, () => console.log(`[runner] listening on http://localhost:${PORT}  image=${IMAGE} outputs=${OUTPUTS_DIR}  backends=${[CEREBRAS_API_KEY && "cerebras", BEDROCK_API_KEY && "bedrock"].filter(Boolean).join(",")}`));

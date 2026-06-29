@@ -48,6 +48,7 @@ export default {
       if (!target) return Response.json({ error: "url required" }, { status: 400 });
       const runMode =
         mode === "cerebras" ? "cerebras"
+        : mode === "bedrock" ? "bedrock"
         : mode === "uplift" ? "uplift"
         : mode === "agent" ? "agent"
         : mode === "probe" ? "probe"

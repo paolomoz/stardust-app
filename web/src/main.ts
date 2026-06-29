@@ -20,6 +20,7 @@ import { beginRun, navTo, openVariant, sendMessage, resetRun, reopenRun } from "
 const _mode = new URLSearchParams(location.search).get("mode");
 const runMode =
   _mode === "cerebras" ? "cerebras"
+  : _mode === "bedrock" ? "bedrock"
   : _mode === "uplift" ? "uplift"
   : _mode === "agent" ? "agent"
   : _mode === "probe" ? "probe"

@@ -165,7 +165,8 @@ export class RunSession extends DurableObject<Env> {
       .bind(this.project, runId)
       .run();
 
-    if (row?.mode === "cerebras") return this.runCerebras(url);
+    if (row?.mode === "cerebras") return this.runRuntime(url, "cerebras");
+    if (row?.mode === "bedrock") return this.runRuntime(url, "bedrock");
     if (row?.mode === "uplift") return this.runUplift(url);
     if (row?.mode === "agent" || row?.mode === "probe") return this.runAgent(url, row.mode === "probe");
     return this.runScripted(url, runId);
@@ -361,19 +362,22 @@ export class RunSession extends DurableObject<Env> {
     }
   }
 
-  /* ---- New-architecture run: open-loop runtime (Cerebras/Gemma) in the sandbox.
-     The DO mints the ingest token, shows the working screen, asks the host runner
-     to docker-run the runtime, then drives the screens purely from ingest (no
-     SSE). Completion arrives via the agent's {"phase":"done"} milestone. ---- */
-  private async runCerebras(url: string): Promise<void> {
+  /* ---- New-architecture run: open-loop runtime in the sandbox. backend selects
+     the model provider (cerebras/Gemma or bedrock/Opus). The DO mints the ingest
+     token, shows the working screen, asks the host runner to docker-run the
+     runtime, then drives the screens purely from ingest (no SSE). Completion
+     arrives via the agent's {"phase":"done"} milestone. ---- */
+  private async runRuntime(url: string, backend: "cerebras" | "bedrock"): Promise<void> {
     this.uplift = true;
     this.tasks = UPLIFT_TASKS.map((t) => ({ ...t }));
     this.tasks[0].status = "run";
+    const clock = backend === "bedrock" ? "⏱ bedrock · opus · live" : "⏱ cerebras · gemma · live";
+    const label = backend === "bedrock" ? "Bedrock/Opus" : "Cerebras";
     await this.emit({ t: "run.started", runId: this.runId, url, projectName: this.project, seed: "—" });
     await this.emit({ t: "phase", phase: "prototype" });
     await this.emit({ t: "tasks.init", tasks: this.tasks });
     await this.emit({ t: "progress", value: 5 });
-    await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock: "⏱ cerebras · gemma · live" } });
+    await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock } });
     await this.emit({ t: "screen", screen: "working" });
 
     const token = crypto.randomUUID().replace(/-/g, "");
@@ -384,10 +388,10 @@ export class RunSession extends DurableObject<Env> {
       const r = await fetch(runner, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ runId: this.runId, url, token }),
+        body: JSON.stringify({ runId: this.runId, url, token, backend }),
       });
       if (!r.ok) throw new Error(`runner ${r.status}: ${(await r.text()).slice(0, 200)}`);
-      await this.emit({ t: "message.append", message: { id: "sess", role: "agent", lead: `Cerebras runtime started — reading ${this.project}…` } });
+      await this.emit({ t: "message.append", message: { id: "sess", role: "agent", lead: `${label} runtime started — reading ${this.project}…` } });
     } catch (e) {
       await this.emit({ t: "message.append", message: { id: "no-runner", role: "agent", lead: "Couldn't reach the runtime runner. Start it: <code>node runtime/runner.mjs</code>." } });
       await this.fail(`runner unreachable: ${String((e as Error).message ?? e)}`);

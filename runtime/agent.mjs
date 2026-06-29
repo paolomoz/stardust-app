@@ -8,12 +8,15 @@
    Env:
      RUN_ID, INGEST_BASE, INGEST_TOKEN   (from the Durable Object)
      TARGET_URL                          (the site to redesign)
-     CEREBRAS_API_KEY [, CEREBRAS_MODEL, CEREBRAS_BASE_URL]
+     MODEL_BACKEND=cerebras|bedrock  (default cerebras)
+     cerebras: CEREBRAS_API_KEY [, CEREBRAS_MODEL, CEREBRAS_BASE_URL]
+     bedrock:  BEDROCK_API_KEY [, BEDROCK_MODEL, BEDROCK_REGION]
      OUTPUTS_DIR=/mnt/session/outputs, WORKDIR=/workspace
      TASK (optional) — override the uplift instruction (used by smoke tests)
    =========================================================================== */
 import { readFile } from "node:fs/promises";
 import { makeProvider } from "./provider.mjs";
+import { makeBedrockProvider } from "./provider-bedrock.mjs";
 import { makeIngest } from "./ingest.mjs";
 import { makeTools, TOOL_SPECS } from "./tools.mjs";
 import { runLoop } from "./loop.mjs";
@@ -31,7 +34,8 @@ if (!runId || !base || !token) {
   process.exit(1);
 }
 
-const provider = makeProvider();
+const backend = (env.MODEL_BACKEND || "cerebras").toLowerCase();
+const provider = backend === "bedrock" ? makeBedrockProvider() : makeProvider();
 const ingest = makeIngest({ base, runId, token, outputsDir });
 const tools = makeTools({ workdir, outputsDir, ingest });
 const system = await readFile(new URL("./system-prompt.md", import.meta.url), "utf8");
@@ -43,7 +47,7 @@ const task =
     `Emit each milestone (emit_milestone) the instant it happens and upload each deliverable (upload_artifact) as soon as it exists.`;
 
 try {
-  await ingest.event({ type: "narration", text: `Cerebras ${provider.model} — starting${url ? ` uplift of ${url}` : ""}.` });
+  await ingest.event({ type: "narration", text: `${provider.name} ${provider.model} — starting${url ? ` uplift of ${url}` : ""}.` });
   const { usage, done } = await runLoop({
     provider,
     tools,
