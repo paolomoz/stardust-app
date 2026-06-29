@@ -1,0 +1,79 @@
+/* Directions — 3-up brand-faithful variant gallery + shared fixes. */
+import { h, esc } from "../dom";
+import type { App, Screen } from "../controller";
+import type { RunState, VariantCard } from "../state";
+import { topbar, rail } from "../components/shell";
+import { convHead, composer, thread } from "../components/conversation";
+import { KNACK_SEED_NOTE } from "../data/knack";
+import { wireActions, wireComposer } from "./working";
+
+function card(v: VariantCard): string {
+  const moves = v.moves?.length
+    ? `<ul class="moves"><li class="ml">${esc(v.movesLabel ?? "moves")}</li>${v.moves
+        .map((m) => `<li class="m"><span class="a">→</span> ${m}</li>`)
+        .join("")}</ul>`
+    : "";
+  const middle = v.whatif
+    ? `<div class="whatif"><span class="q">what if</span><span class="qt">${v.whatif}</span></div>`
+    : v.faithful
+      ? `<div class="faithful">${esc(v.faithful)}</div>`
+      : "";
+  return `<div class="vcard${v.recommended ? " rec" : ""}" data-variant="${v.id}">
+    ${v.recommended ? `<span class="recpill">★ recommended</span>` : ""}
+    <div class="thumb"><img src="${esc(v.thumb)}" alt="Variant ${v.id} — ${esc(v.title)}" /></div>
+    <div class="meta">
+      <div class="top"><span class="k">${v.id}</span><span class="ttl">${esc(v.title)}</span></div>
+      <p class="pitch">${v.pitch}</p>
+      ${middle}
+      ${moves}
+      <div class="role">${esc(v.role)}</div>
+    </div>
+  </div>`;
+}
+
+export function variants(state: RunState, app: App): Screen {
+  const fixes = state.sharedFixes
+    .map((f) => `<span class="fixchip"><span class="ck">✓</span> ${f}</span>`)
+    .join("");
+  const el = h(`<div class="app">
+    ${topbar(state.phase, [
+      { label: "← Back", kind: "quiet", to: "back-brand" },
+      { label: "Open variant C", kind: "primary", to: "open-C", arrow: true },
+    ])}
+    <div class="middle">
+      <section class="conv" aria-label="conversation">
+        ${convHead(state.projectName)}
+        ${thread(state.messages, KNACK_SEED_NOTE)}
+        ${composer("ask for another direction…", `Try <span class="mono">"a calmer option"</span> or <span class="mono">"go bolder than C"</span>.`)}
+      </section>
+      <section class="panel" aria-label="directions">
+        <div class="subheader">
+          <div class="sub-left"><span class="eyebrow">directions</span><span style="font-size:13px;color:var(--fg-dim)">3 variants · brand-faithful</span></div>
+          <div class="sub-right"><span style="font:500 12px/1 var(--mono);color:var(--fg-faint)">click to iterate</span></div>
+        </div>
+        <div class="cardbody">
+          <div class="galwrap">
+            <div class="shared fade">
+              <div class="sh"><span class="e">all three fix</span><span class="t">the <b>5 tensions</b> from the audit — applied to every variant</span></div>
+              <div class="fixchips">${fixes}</div>
+            </div>
+            <div class="gallery stagger">${state.variants.map(card).join("")}</div>
+          </div>
+        </div>
+      </section>
+    </div>
+    ${rail(state.rail)}
+  </div>`);
+
+  wireActions(el, app);
+  wireComposer(el, app, "variants");
+  el.querySelectorAll<HTMLElement>(".vcard[data-variant]").forEach((c) =>
+    c.addEventListener("click", () => app.openVariant(c.getAttribute("data-variant") as VariantCard["id"])),
+  );
+
+  const update = (s: RunState) => {
+    const t = el.querySelector(".conv-thread");
+    if (t) t.outerHTML = thread(s.messages, KNACK_SEED_NOTE);
+  };
+  return { el, update };
+}
