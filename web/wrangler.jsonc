@@ -20,5 +20,25 @@
       "migrations_dir": "migrations"
     }
   ],
-  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "stardust-web-artifacts" }]
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "stardust-web-artifacts" }],
+
+  // Production env: real remote D1 id + bindings (local dev keeps the top-level
+  // config / its own local store). Deploy with `wrangler deploy --env production`.
+  "env": {
+    "production": {
+      "durable_objects": {
+        "bindings": [{ "name": "RUN", "class_name": "RunSession" }]
+      },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RunSession"] }],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "stardust-web-db",
+          "database_id": "b762e4ba-9af8-453e-a1e7-e9c5e6081578",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "stardust-web-artifacts" }]
+    }
+  }
 }

@@ -29,39 +29,51 @@ wrangler d1 create stardust-web-db          # copy the printed database_id
 # R2
 wrangler r2 bucket create stardust-web-artifacts
 ```
-Put the real D1 id into `wrangler.jsonc` (replace `local-dev-placeholder`).
-Then apply migrations to the REMOTE db:
+The real D1 id goes in `wrangler.jsonc` under `env.production` (local dev keeps
+the top-level placeholder + its own local store). Apply migrations to the REMOTE
+prod db:
 ```bash
-wrangler d1 migrations apply stardust-web-db --remote
+wrangler d1 migrations apply stardust-web-db --remote --env production
 ```
 
+**Live deploy:** https://stardust-web-production.paolo-moz.workers.dev
+(account 2760892a…, D1 b762e4ba…, worker `stardust-web-production`).
+
 ## 3. Worker secrets (prod)
-The Worker needs OAuth + the Haiku-ETA key + where the hands live:
+The Worker needs OAuth + the Haiku-ETA key + where the hands live. Each prompts
+for the value (you paste it); always pass `--env production`:
 ```bash
-wrangler secret put GOOGLE_CLIENT_ID
-wrangler secret put GOOGLE_CLIENT_SECRET
-wrangler secret put GITHUB_CLIENT_ID_PROD
-wrangler secret put GITHUB_CLIENT_SECRET_PROD
-wrangler secret put ANTHROPIC_API_KEY        # used for the per-task ETA estimate
-wrangler secret put RUNNER_URL               # https URL of the hands /run endpoint (see §6)
+wrangler secret put GOOGLE_CLIENT_ID --env production
+wrangler secret put GOOGLE_CLIENT_SECRET --env production
+wrangler secret put GITHUB_CLIENT_ID_PROD --env production
+wrangler secret put GITHUB_CLIENT_SECRET_PROD --env production
+wrangler secret put ANTHROPIC_API_KEY --env production    # per-task ETA estimate
+wrangler secret put RUNNER_URL --env production            # hands endpoint (after §6)
 ```
 (GitHub `_DEV` creds are only needed locally; `_PROD` is used off-localhost.)
 Model keys (BEDROCK_API_KEY / CEREBRAS_API_KEY) do NOT go on the Worker — they
 live on the runner host (§6), which injects them into containers.
 
 ## 4. Deploy
+The `@cloudflare/vite-plugin` picks the wrangler environment from `CLOUDFLARE_ENV`
+(NOT `--env`), so both build and deploy need it:
 ```bash
-npm run deploy        # vite build + wrangler deploy
+CLOUDFLARE_ENV=production npx vite build
+CLOUDFLARE_ENV=production npx wrangler deploy
 ```
-Add a custom domain (Cloudflare dash → Workers → your worker → Domains & Routes,
-or `routes` in wrangler.jsonc). Note the final origin, e.g. `https://app.example.com`.
+This deploys the `stardust-web-production` worker at
+`https://stardust-web-production.paolo-moz.workers.dev`. Add a custom domain later
+via the dash (Workers → the worker → Domains & Routes); update the OAuth callbacks
+to the custom origin if you do.
 
 ## 5. OAuth prod callbacks (your consoles)
-- **Google** (one client): add redirect URI `https://<origin>/auth/google/callback`
+Origin = `https://stardust-web-production.paolo-moz.workers.dev` (or your custom domain).
+- **Google** (one client): add redirect URI
+  `https://stardust-web-production.paolo-moz.workers.dev/auth/google/callback`
   (keep the localhost one for dev). If the consent screen is still "Testing", add
   your users as Test users or publish the app.
 - **GitHub** (`_PROD` app): set its Authorization callback URL to
-  `https://<origin>/auth/github/callback`. (You already created this app.)
+  `https://stardust-web-production.paolo-moz.workers.dev/auth/github/callback`.
 
 ## 6. The hands (the one real decision)
 The runner (`app/runtime/runner.mjs`) + Docker run the sandbox image. Pick where:
