@@ -316,3 +316,9 @@ body.ready .stagger > * { animation-play-state: running; }
 .switcher-menu .sw-act:hover { background: var(--bg); color: var(--fg); }
 .rs { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-faint); flex: none; }
 .rs-done { background: var(--success); } .rs-running { background: var(--amber); } .rs-error, .rs-canceled { background: var(--danger, #b4452f); }
+
+/* footer rail — state styles */
+.rail .item.err { color: var(--danger); }
+.rail .item.err .ic { color: var(--danger); }
+.rail .ic.ok { color: var(--success); }
+.rail .item .dim { color: var(--fg-faint); }

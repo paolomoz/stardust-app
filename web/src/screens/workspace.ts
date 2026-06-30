@@ -31,7 +31,7 @@ export function workspace(state: RunState, app: App): Screen {
         ${previewIframe(cur.src, `${state.projectName} redesign — variant ${cur.id}`, state.viewport)}
       </section>
     </div>
-    ${rail(state.rail)}
+    ${rail(state)}
   </div>`);
 
   const frame = el.querySelector<HTMLIFrameElement>("#artframe")!;
@@ -92,7 +92,7 @@ export function workspace(state: RunState, app: App): Screen {
     const vtabs = el.querySelector<HTMLElement>(".vtabs-slot");
     if (vtabs) vtabs.innerHTML = viewNav("uplift", s);
     // footer rail (palette/clock) — re-render in place on state change
-    syncRail(el, s.rail);
+    syncRail(el, s);
     // reload the iframe when the variant changes OR its src does (in-place
     // re-render after an iteration bumps src with a ?v= cache-buster)
     const card = activeCard(s);

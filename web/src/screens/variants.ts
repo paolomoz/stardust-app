@@ -53,7 +53,7 @@ export function variants(state: RunState, app: App): Screen {
         </div>
       </section>
     </div>
-    ${rail(state.rail)}
+    ${rail(state)}
   </div>`);
 
   wireActions(el, app);
@@ -62,7 +62,7 @@ export function variants(state: RunState, app: App): Screen {
   );
 
   const update = (s: RunState) => {
-    syncRail(el, s.rail);
+    syncRail(el, s);
     const tabs = el.querySelector<HTMLElement>(".sub-left");
     if (tabs) tabs.innerHTML = viewNav("uplift", s);
   };

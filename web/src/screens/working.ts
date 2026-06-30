@@ -28,13 +28,13 @@ export function working(state: RunState, app: App): Screen {
         <div class="boardwrap" id="boardwrap">${board(state)}</div>
       </section>
     </div>
-    ${rail(state.rail)}
+    ${rail(state)}
   </div>`);
 
   wireActions(el, app);
 
   const update = (s: RunState) => {
-    syncRail(el, s.rail);
+    syncRail(el, s);
     const bw = el.querySelector<HTMLElement>("#boardwrap");
     if (bw) bw.innerHTML = (s.error ? `<div class="berror"><div class="errmark">!</div><div class="errmsg">${esc(s.error)}</div><button class="btn btn-primary" data-act="restart">Start over</button></div>` : "") + board(s);
     const sr = el.querySelector<HTMLElement>("#subRight");

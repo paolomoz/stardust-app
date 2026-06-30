@@ -23,13 +23,13 @@ export function brand(state: RunState, app: App): Screen {
         <div class="preview"><iframe src="${esc(state.brandReviewUrl)}" title="${esc(state.projectName)} brand review" loading="eager"></iframe></div>
       </section>
     </div>
-    ${rail(state.rail)}
+    ${rail(state)}
   </div>`);
 
   wireActions(el, app);
 
   const update = (s: RunState) => {
-    syncRail(el, s.rail);
+    syncRail(el, s);
     const tabs = el.querySelector<HTMLElement>(".sub-left");
     if (tabs) tabs.innerHTML = viewNav("uplift", s);
   };

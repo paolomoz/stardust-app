@@ -2,7 +2,7 @@
    4-rung journey ladder, context actions) + the right-panel view tabs (micro nav)
    + the ambient footer rail. See NAVIGATION.md. */
 import { esc } from "../dom";
-import type { RunState, RailState, ScreenId } from "../state";
+import type { RunState, ScreenId } from "../state";
 import { starHeader } from "./icons";
 import { userChip } from "../auth";
 
@@ -67,25 +67,55 @@ export function viewNav(label: string, state: RunState): string {
   return `<span class="eyebrow ovw">${esc(label)}</span><span class="segdiv"></span>${viewTabs(state)}`;
 }
 
-export function rail(r: RailState): string {
+const cleanHost = (u: string) => u.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "");
+
+/** Remaining-time text from the ETA estimate, or "" once elapsed/unknown. */
+function etaText(eta?: { seconds: number; at: number }): string {
+  if (!eta) return "";
+  const rem = eta.seconds - (Date.now() - eta.at) / 1000;
+  if (rem <= 0) return "";
+  return rem < 60 ? "~<1m left" : `~${Math.ceil(rem / 60)}m left`;
+}
+
+/** Ambient status rail — driven by real run state, not curated labels. */
+export function rail(s: RunState): string {
+  const r = s.rail;
   const items: string[] = [];
-  if (r.busy) {
-    items.push(`<div class="item"><span class="ic">◐</span> <span class="spin" style="width:11px;height:11px"></span> reading brand surface…</div>`);
-  } else if (r.swatches.length) {
+
+  // Palette — the captured brand colors.
+  if (r.swatches.length) {
     items.push(`<div class="item"><span class="ic">◐</span> palette <span class="swatches">${r.swatches.map((c) => `<i style="background:${esc(c)}"></i>`).join("")}</span></div>`);
   }
-  if (r.signature) items.push(`<div class="item"><span class="amber">✦</span> signature <b>${esc(r.signature)}</b></div>`);
-  else if (r.note) items.push(`<div class="item"><span class="amber">✦</span> ${esc(r.note)}</div>`);
-  if (r.variant) items.push(`<div class="item"><span class="ic">▦</span> variant <b id="variantLabel">${esc(r.variant)}</b></div>`);
-  else if (typeof r.tensions === "number") items.push(`<div class="item"><span class="ic">▦</span> tensions <b>${r.tensions}</b></div>`);
+
+  // Live activity — the real status ticker + ETA while working; an honest
+  // done/failed state otherwise.
+  if (s.error) {
+    items.push(`<div class="item err"><span class="ic">!</span> stopped</div>`);
+  } else if (s.agentBusy) {
+    const eta = etaText(s.eta);
+    items.push(`<div class="item"><span class="spin" style="width:11px;height:11px"></span> ${esc(s.statusTicker || "working")}${eta ? ` <span class="dim">· ${eta}</span>` : ""}</div>`);
+  } else if (s.variants.length) {
+    items.push(`<div class="item"><span class="ic ok">✓</span> ${s.variants.length} variants ready</div>`);
+  }
+
+  // Context — the active variant in the workspace, else the tension count.
+  if (s.screen === "workspace" && s.variants.length) {
+    const cur = s.variants.find((v) => v.id === s.activeVariant) ?? s.variants[0];
+    items.push(`<div class="item"><span class="ic">▦</span> variant <b id="variantLabel">${esc(cur.segLabel)}</b></div>`);
+  } else if (s.tensions.length) {
+    items.push(`<div class="item"><span class="ic">▦</span> <b>${s.tensions.length}</b> tensions</div>`);
+  }
+
   items.push(`<div class="spacer"></div>`);
-  if (r.clock) items.push(`<div class="item clock">${esc(r.clock)}</div>`);
+
+  // Right — the site we're redesigning (persistent, always relevant).
+  if (s.url) items.push(`<div class="item dim">${esc(cleanHost(s.url))}</div>`);
+
   return `<footer class="rail">${items.join("")}</footer>`;
 }
 
-/** Re-render the footer rail in place when run state changes (palette, clock,
- *  variant). The rail is otherwise rendered once at mount. */
-export function syncRail(el: HTMLElement, r: RailState): void {
+/** Re-render the footer rail in place when run state changes. */
+export function syncRail(el: HTMLElement, s: RunState): void {
   const footer = el.querySelector(".rail");
-  if (footer) footer.outerHTML = rail(r);
+  if (footer) footer.outerHTML = rail(s);
 }
