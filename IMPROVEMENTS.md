@@ -75,6 +75,31 @@ Costs / caveats:
   (auto-enable + nudge, or auto-advance). Pairs with the progress-fidelity item
   under Speed.
 
+## Product / flow ladder (project dashboard)
+
+Turn the "Building your redesign" stage into a **project summary board** that
+shows the whole stardust ladder — done / in-progress / future — not just the
+current uplift. Surfaces the gradual-complexity journey (uplift → templates →
+deploy → rollout) from the plan; today only uplift is built, so the later
+columns are "future / greyed."
+
+- **4 columns**, each with its own sub-steps rendered as the existing task rows
+  (icon + CATEGORY label + title + detail + status: done ✓ / in-progress spinner
+  / future ○ greyed):
+  1. **Uplift** (the URL) — CAPTURE rendering · READ brand · EXTRACT surface ·
+     ANALYZE tensions · DIRECT 3 directions · VALIDATE renders (i.e. the current
+     uplift task list, with its loading animations).
+  2. **Prototype** — prototype the other templates beyond the homepage.
+  3. **Deploy** — deploy prototypes to AEM Edge Delivery.
+  4. **Rollout** — roll out the entire site.
+- A column's whole set greys out when that phase is still in the future.
+- **Header redesign**, left→right: `stardust` (logo) → root · `festool.com ·
+  redesign` → this summary board · then the 4 phase links **uplift · prototype ·
+  deploy · rollout** with not-yet-reached phases greyed (like `deploy` is today).
+  Replaces the current 2-rung `prototype — deploy` ladder with the full 4-rung one.
+- This makes the project's state legible at a glance and gives a home for the
+  deploy/rollout rungs (currently deferred) as they come online.
+
 ## Cost (future)
 - **Prompt caching** (above) — biggest lever (~15-18M cached tokens re-read/run).
 - **Idle container instances.** Right after deploy the `stardust-sandbox` app
