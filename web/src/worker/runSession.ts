@@ -567,6 +567,14 @@ export class RunSession extends DurableObject<Env> {
       await this.fail(e.message || "the run failed");
       return;
     }
+
+    // Long prod runs can evict + reconstruct the DO between milestones, resetting
+    // the in-memory accumulators (realBrand/realVariants/realPalette/uplift). A
+    // milestone on a cold DO would otherwise lose prior state and clobber
+    // result_json. Restore from the persisted result first; persistResult also
+    // merges, so partial state never nulls out what's already saved.
+    if (!this.uplift) await this.rehydrateResult(runId);
+
     const set = (id: string, status?: TaskItem["status"], detail?: string) => {
       const t = this.tasks.find((x) => x.id === id);
       if (!t) return;
@@ -639,7 +647,18 @@ export class RunSession extends DurableObject<Env> {
   /** Persist the real result (brand + variants) so a finished run can be
    *  reopened (/?run=<id>) and its brand/variants screens rebuilt. */
   private async persistResult(): Promise<void> {
-    const result = JSON.stringify({ uplift: true, brand: this.realBrand ?? null, variants: this.realVariants ?? null, palette: this.realPalette ?? null });
+    // Read-modify-write (merge): only update fields we currently hold in memory,
+    // so a cold/evicted DO handling a late milestone can't null out brand /
+    // variants / palette that an earlier handler already saved.
+    const row = await this.env.DB.prepare("SELECT result_json FROM runs WHERE id = ?").bind(this.runId).first<{ result_json: string | null }>();
+    let cur: { brand?: unknown; variants?: unknown; palette?: unknown } = {};
+    try { if (row?.result_json) cur = JSON.parse(row.result_json); } catch { /* ignore */ }
+    const result = JSON.stringify({
+      uplift: true,
+      brand: this.realBrand ?? cur.brand ?? null,
+      variants: this.realVariants ?? cur.variants ?? null,
+      palette: this.realPalette ?? cur.palette ?? null,
+    });
     await this.env.DB.prepare("UPDATE runs SET result_json = ? WHERE id = ?").bind(result, this.runId).run();
   }
 
