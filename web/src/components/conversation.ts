@@ -26,6 +26,19 @@ export function planBlock(p: PlanBlock): string {
   return `<div class="plan"><div class="tag">${esc(p.tag)}</div><ul class="steps">${steps}</ul>${status}${acts}</div>`;
 }
 
+/** Safe rich text for agent messages: escape everything (narration is untrusted
+ *  free text that can contain literal HTML like <h1>), then render only light
+ *  markdown — **bold**, *italic*, `code`. */
+export function fmtText(s: string): string {
+  // Legacy curated messages used <b>/<i>; treat those known-safe tags as markdown
+  // (everything else, incl. narration's literal <h1>, is escaped below).
+  const pre = s.replace(/<\/?b>/g, "**").replace(/<\/?i>/g, "*");
+  return esc(pre)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*\n]+)\*/g, "<em>$1</em>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
 function artifactCard(a: ArtifactRef): string {
   return `<button class="artifact-card" data-artifact="${esc(a.kind)}"${a.variant ? ` data-variant="${esc(a.variant)}"` : ""}>
     <span class="ac-ic">▦</span>
@@ -45,8 +58,8 @@ export function message(m: Message, seedNote: string): string {
     return `<div class="msg art">${artifactCard(m.artifact)}</div>`;
   }
   const parts: string[] = [];
-  if (m.lead) parts.push(`<div class="lead"><span class="star">✦</span> ${m.lead}</div>`);
-  for (const p of m.body ?? []) parts.push(`<p>${p}</p>`);
+  if (m.lead) parts.push(`<div class="lead"><span class="star">✦</span> ${fmtText(m.lead)}</div>`);
+  for (const p of m.body ?? []) parts.push(`<p>${fmtText(p)}</p>`);
   if (m.plan) parts.push(planBlock(m.plan));
   if (m.seed) parts.push(seedChip(m.seed, seedNote));
   return `<div class="msg fade">${parts.join("")}</div>`;

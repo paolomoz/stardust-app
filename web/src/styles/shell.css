@@ -145,6 +145,8 @@ body.ready .stagger > * { animation-play-state: running; }
 .msg p { margin: 0; color: var(--fg-muted); font-size: 14px; line-height: 1.5; }
 .msg p + p { margin-top: 8px; }
 .msg .star { color: var(--amber-deep); }
+.msg .lead strong, .msg p strong { font-weight: 600; color: var(--fg); }
+.msg code { font: 0.88em var(--mono); background: var(--sunken); color: var(--fg-dim); padding: 1px 5px; border-radius: 5px; }
 .msg .clist { margin: 2px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
 .msg .clist li { display: flex; gap: 8px; align-items: baseline; font-size: 13.5px; color: var(--fg-muted); }
 .msg .clist .ck { color: var(--success); font-size: 12px; }
