@@ -138,6 +138,27 @@ function openSocket(id: string): void {
   });
 }
 
+export interface RunSummary {
+  id: string;
+  url: string;
+  status: string;
+  mode: string;
+  project: string | null;
+  created_at: number;
+}
+
+/** The signed-in user's runs (newest first) for the "Your runs" panel. */
+export async function listRuns(): Promise<RunSummary[]> {
+  try {
+    const r = await fetch("/api/runs");
+    if (!r.ok) return [];
+    const j = (await r.json()) as { runs: RunSummary[] };
+    return j.runs ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export const navTo = (to: ScreenId) => command({ t: "nav", to });
 export const openVariant = (variant: VariantId) => command({ t: "open", variant });
 export const selectVariant = (variant: VariantId) => command({ t: "select", variant });

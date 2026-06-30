@@ -36,6 +36,18 @@ const WS_PATH = /^\/api\/runs\/([^/]+)\/ws$/;
 const INGEST_EVENT = /^\/api\/ingest\/([^/]+)\/event$/;
 const INGEST_ARTIFACT = /^\/api\/ingest\/([^/]+)\/artifact\/(.+)$/;
 
+/** Owner gate for viewing a run / its artifacts. Legacy runs with no owner
+ *  (created before auth) stay viewable so old test runs keep working. Returns
+ *  true if access is allowed. (Public-publish bypass arrives in point C.) */
+async function canViewRun(env: Env, runId: string, request: Request): Promise<boolean> {
+  const row = await env.DB.prepare("SELECT user_id FROM runs WHERE id = ?")
+    .bind(runId).first<{ user_id: string | null }>();
+  if (!row) return false;
+  if (!row.user_id) return true; // legacy / unowned
+  const user = await getSessionUser(request, env);
+  return !!user && user.id === row.user_id;
+}
+
 /** Authorize an ingest call against the run's per-run token (stored in D1). */
 async function ingestAuthed(env: Env, runId: string, request: Request): Promise<boolean> {
   const bearer = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
@@ -60,6 +72,16 @@ export default {
     if (path === "/api/me") {
       const user = await getSessionUser(request, env);
       return Response.json({ user });
+    }
+
+    // List the signed-in user's runs (newest first) for the "Your runs" panel.
+    if (path === "/api/runs" && request.method === "GET") {
+      const user = await getSessionUser(request, env);
+      if (!user) return Response.json({ error: "unauthenticated" }, { status: 401 });
+      const { results } = await env.DB.prepare(
+        "SELECT id, url, status, mode, project, created_at FROM runs WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
+      ).bind(user.id).all();
+      return Response.json({ runs: results ?? [] });
     }
 
     // Create a run (requires a signed-in user; the run is owned by them).
@@ -89,6 +111,7 @@ export default {
         return new Response("Expected WebSocket", { status: 426 });
       }
       const runId = wsMatch[1];
+      if (!(await canViewRun(env, runId, request))) return new Response("Forbidden", { status: 403 });
       const stub = env.RUN.get(env.RUN.idFromName(runId));
       return stub.fetch(request);
     }
@@ -123,9 +146,12 @@ export default {
       return Response.json({ ok: true, key });
     }
 
-    // Artifacts: serve from R2. /api/artifacts/<key...>  ->  R2 key artifacts/<key...>
+    // Artifacts: serve from R2 (owner-gated). /api/artifacts/<runId>/<path...>
     if (path.startsWith("/api/artifacts/")) {
-      const key = "artifacts/" + path.slice("/api/artifacts/".length);
+      const rest = path.slice("/api/artifacts/".length);
+      const runId = rest.split("/")[0];
+      if (!(await canViewRun(env, runId, request))) return new Response("Forbidden", { status: 403 });
+      const key = "artifacts/" + rest;
       const object = await env.BUCKET.get(key);
       if (!object) return new Response("Not found", { status: 404 });
       const headers = new Headers();

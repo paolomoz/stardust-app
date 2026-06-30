@@ -184,6 +184,22 @@ body.ready .stagger > * { animation-play-state: running; }
 .oauthbtn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 11px 14px; border-radius: 11px; border: 1px solid var(--hairline-soft); background: var(--surface); color: var(--fg); font-size: 14px; font-weight: 500; cursor: pointer; transition: border-color .15s var(--ease), box-shadow .15s var(--ease); }
 .oauthbtn:hover { border-color: rgba(201,130,45,0.55); box-shadow: 0 2px 8px rgba(26,31,56,0.06); }
 
+/* Landing "Your runs" list — resume past runs. */
+.yourruns { width: 100%; max-width: 440px; margin: 24px auto 0; text-align: left; }
+.yr-h { font: 600 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); margin: 0 2px 9px; }
+.yr-list { display: flex; flex-direction: column; gap: 6px; max-height: 264px; overflow-y: auto; }
+.yr-empty { font-size: 13px; color: var(--fg-faint); padding: 6px 2px; }
+.runrow { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--hairline-soft); background: var(--surface); cursor: pointer; transition: border-color .15s var(--ease), box-shadow .15s var(--ease); }
+.runrow:hover { border-color: rgba(201,130,45,0.5); box-shadow: 0 2px 8px rgba(26,31,56,0.05); }
+.runrow .rs { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--fg-faint); }
+.runrow .rs-done { background: var(--success); }
+.runrow .rs-running, .runrow .rs-pending { background: var(--amber); }
+.runrow .rs-error { background: var(--amber-deep); }
+.runrow .rt { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.runrow .rname { font-size: 14px; color: var(--fg); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.runrow .rmeta { font: 500 11px/1 var(--mono); color: var(--fg-faint); margin-top: 3px; }
+.runrow .rarr { color: var(--fg-faint); font-size: 14px; flex: none; }
+
 /* "New artifact ready" toasts — float bottom-right, above the rail. */
 .toasts { position: fixed; right: 18px; bottom: 60px; z-index: 60; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
 .toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; min-width: 250px; background: var(--surface); border: 1px solid var(--hairline-soft); box-shadow: 0 8px 28px rgba(26,31,56,0.16); border-radius: 12px; padding: 10px 12px; transform: translateY(12px); opacity: 0; transition: transform .25s var(--ease), opacity .25s var(--ease); }
