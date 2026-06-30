@@ -59,6 +59,22 @@ Costs / caveats:
 - Per-variant craft is itself sequential (build → QA → critique → motion); the
   win is cross-variant, not within-variant.
 
+## UX
+
+- **URL-as-run-state (bookmarkable / reload-safe).** On starting a run, switch
+  the browser URL to `/?run=<id>` (history.replaceState) so the user can bookmark
+  it and reload. On reload of a *running* run, restore the full live status —
+  chat, artifacts, **and the progress bar / thinking dots** — then keep streaming.
+  Mostly works already: `reopenRun` rehydrates run_events + result_json and the
+  DO reconnects/continues live (robust now post eviction-fix); the missing piece
+  is (a) updating the URL on `beginRun`, and (b) confirming the working-screen
+  progress/busy/eta restore on a mid-run reload. Small change, high value.
+- **Clear "done" state on the working screen.** When a run finishes, the working
+  stage still shows "Building… / brand surface captured" with a spinner (looks
+  stuck) until the user clicks "See snapshot". Show an explicit done state
+  (auto-enable + nudge, or auto-advance). Pairs with the progress-fidelity item
+  under Speed.
+
 ## Cost (future)
 - **Prompt caching** (above) — biggest lever (~15-18M cached tokens re-read/run).
 - **Idle container instances.** Right after deploy the `stardust-sandbox` app
