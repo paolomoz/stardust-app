@@ -29,12 +29,15 @@ RUN npm init -y >/dev/null 2>&1 \
 # points at /workspace/skills/{stardust,impeccable}.
 COPY skills/ /workspace/skills/
 
-# Bake the open-loop runtime (Cerebras/Gemma path; staged by build.sh into
-# ./runtime). Dependency-free ESM. Default ENTRYPOINT stays the Managed Agents
-# worker; the host runner overrides it with: node /workspace/runtime/agent.mjs
+# Bake the open-loop runtime (dependency-free ESM; staged by build.sh into
+# ./runtime). Default entrypoint = the in-container job server (Cloudflare
+# Containers). Local dev's host runner overrides it with:
+#   --entrypoint node … /workspace/runtime/agent.mjs   (one-shot per docker run)
 COPY runtime/ /workspace/runtime/
 
-# Per-session deliverables land here; the host bind-mounts a dir at this path.
+# Per-session deliverables land here; local dev bind-mounts a dir at this path.
 VOLUME /mnt/session/outputs
 
-ENTRYPOINT ["ant", "beta:worker", "run"]
+# The job server listens here; Cloudflare Containers routes to it.
+EXPOSE 8080
+ENTRYPOINT ["node", "/workspace/runtime/server.mjs"]

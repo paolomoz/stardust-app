@@ -40,6 +40,14 @@ rm -rf "$HERE/runtime"
 mkdir -p "$HERE/runtime"
 rsync -a --delete --exclude '.git' --exclude 'node_modules' --exclude '.DS_Store' "$RUNTIME_SRC/" "$HERE/runtime/"
 
+# STAGE_ONLY=1 → just stage skills+runtime into the build context (used before
+# `wrangler deploy`, which builds the Containers image itself). Otherwise build
+# the image locally (host-runner / local dev path).
+if [ "${STAGE_ONLY:-}" = "1" ]; then
+  echo "Staged only (STAGE_ONLY=1) — skipping local docker build."
+  exit 0
+fi
+
 echo "Building image '$IMAGE'…"
 docker build -t "$IMAGE" "$HERE"
 echo "Done: $IMAGE"

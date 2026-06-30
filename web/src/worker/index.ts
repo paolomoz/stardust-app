@@ -3,14 +3,24 @@
    wrangler assets.run_worker_first); everything else falls through to the SPA.
    =========================================================================== */
 import { RunSession } from "./runSession";
+import { SandboxContainer } from "./sandbox";
 import { startOAuth, handleCallback, getSessionUser, logout } from "./auth";
-export { RunSession };
+export { RunSession, SandboxContainer };
 
 export interface Env {
   RUN: DurableObjectNamespace<RunSession>;
   DB: D1Database;
   BUCKET: R2Bucket;
   ASSETS: Fetcher;
+  // The "hands" on Cloudflare Containers (prod). Absent locally → host runner.
+  SANDBOX?: DurableObjectNamespace<SandboxContainer>;
+  PUBLIC_ORIGIN?: string;       // public Worker origin the container posts ingest to
+  // Model keys (Worker secrets in prod) — injected into the container by SandboxContainer.
+  BEDROCK_API_KEY?: string;
+  BEDROCK_MODEL?: string;
+  BEDROCK_REGION?: string;
+  CEREBRAS_API_KEY?: string;
+  CEREBRAS_MODEL?: string;
   // OAuth (web/.dev.vars locally / wrangler secrets in prod). Google = one client
   // (both redirect URIs); GitHub = separate dev/prod apps (one callback each).
   GOOGLE_CLIENT_ID?: string;

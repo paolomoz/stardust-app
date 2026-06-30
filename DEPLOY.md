@@ -75,33 +75,42 @@ Origin = `https://stardust-web-production.paolo-moz.workers.dev` (or your custom
 - **GitHub** (`_PROD` app): set its Authorization callback URL to
   `https://stardust-web-production.paolo-moz.workers.dev/auth/github/callback`.
 
-## 6. The hands (the one real decision)
-The runner (`app/runtime/runner.mjs`) + Docker run the sandbox image. Pick where:
+## 6. The hands — Cloudflare Containers (chosen)
+Prod runs the sandbox image on **Cloudflare Containers** (`standard-2`,
+`sleepAfter: 45m`, `max_instances: 100`). The Worker's `SandboxContainer` DO
+(`src/worker/sandbox.ts`) injects the model keys + `PUBLIC_ORIGIN` as container
+env; the in-container `runtime/server.mjs` receives each job and runs
+`agent.mjs`. The DO uses the Container when `env.SANDBOX` is bound (prod) and
+falls back to the host `runner.mjs` locally. (The `image` build context is
+`../sandbox/`, so the skills + runtime must be staged into it first.)
 
-- **A. Self-hosted VM (recommended).** A small always-on box with Docker + the
-  built `stardust-sandbox` image. Run the runner publicly:
-  ```bash
-  # on the VM, in app/, with .env holding BEDROCK_API_KEY etc.
-  RUNNER_PORT=8790 INGEST_BASE=https://<origin> RUNNER_INGEST_BASE=https://<origin> \
-    node runtime/runner.mjs
-  ```
-  Expose it over HTTPS (a reverse proxy / Cloudflare Tunnel) and set the Worker's
-  `RUNNER_URL` secret to `https://<runner-host>/run`. Containers push results to
-  `INGEST_BASE` (the public Worker). Simplest, no platform limits on the 25-min
-  heavy Playwright runs. Ongoing VM cost.
+**Set the model-key secrets** (prod):
+```bash
+wrangler secret put BEDROCK_API_KEY --env production
+# optional overrides: BEDROCK_MODEL, BEDROCK_REGION
+# optional Cerebras path: CEREBRAS_API_KEY (+ CEREBRAS_MODEL)
+```
+(`PUBLIC_ORIGIN` is a plain var already set in `wrangler.jsonc`; update it if you
+move to a custom domain.)
 
-- **B. Cloudflare Containers (Sandbox SDK).** Most Cloudflare-native; the Worker
-  triggers the container directly. More adaptation work (replace the host-runner
-  trigger with the Containers binding) and needs validating against Containers'
-  limits for long, heavy (Chromium) runs. Best long-term if it fits.
+**Build + deploy** (wrangler builds & pushes the ~3.5 GB image — first push is slow):
+```bash
+cd app && STAGE_ONLY=1 ./sandbox/build.sh        # stage skills + runtime into sandbox/
+cd web && CLOUDFLARE_ENV=production npx vite build
+CLOUDFLARE_ENV=production npx wrangler deploy     # builds the image, deploys the container
+```
 
-- **C. Tunnel to your machine (quick demo).** `cloudflared tunnel` from the
-  public Worker's `RUNNER_URL` to your local `:8790`; the app works only while
-  your machine + Docker are up. Fine for early access, not a real prod.
+**Verify:** start a run on the live site → a container spawns, ingest flows back,
+screens advance, a published variant opens at `/p/<token>`.
 
-Whatever you pick: the runner's env needs the **model keys** (BEDROCK_API_KEY …)
-and `INGEST_BASE` / `RUNNER_INGEST_BASE` = the **public Worker origin**, and the
-Worker's `RUNNER_URL` secret = the **runner's public /run URL**.
+> Iteration (the workspace "tell me a change") needs run inputs restored from R2
+> because container disk is ephemeral — that's a follow-up (R2-backed iterate
+> inputs). Fresh runs work without it.
+
+Alternatives if Containers ever don't fit: a self-hosted VM running
+`runtime/runner.mjs` (set the Worker's `RUNNER_URL` secret to its public `/run`),
+or a `cloudflared` tunnel to your local `:8790` for a quick demo. Both keep the
+same ingest contract.
 
 ## 7. Smoke test
 1. Visit the origin → login (Google/GitHub) works against the prod callbacks.

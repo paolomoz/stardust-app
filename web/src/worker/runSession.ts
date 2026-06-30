@@ -5,6 +5,7 @@
    re-emits any screen's payload on a client nav command.
    =========================================================================== */
 import { DurableObject } from "cloudflare:workers";
+import { getContainer } from "@cloudflare/containers";
 import type { Env } from "./index";
 import type { Message, RailState, ScreenId, TaskItem, VariantCard, VariantId } from "../state";
 import type { ClientCommand, ServerEvent } from "../shared/protocol";
@@ -451,19 +452,38 @@ export class RunSession extends DurableObject<Env> {
     const token = crypto.randomUUID().replace(/-/g, "");
     await this.env.DB.prepare("UPDATE runs SET ingest_token = ? WHERE id = ?").bind(token, this.runId).run();
 
-    const runner = this.env.RUNNER_URL ?? "http://localhost:8790/run";
     try {
-      const r = await fetch(runner, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ runId: this.runId, url, token, backend }),
-      });
-      if (!r.ok) throw new Error(`runner ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      await this.triggerRuntime({ runId: this.runId, url, token, backend });
       await this.emit({ t: "message.append", message: { id: "sess", role: "agent", lead: `${label} runtime started — reading ${this.project}…` } });
     } catch (e) {
-      await this.emit({ t: "message.append", message: { id: "no-runner", role: "agent", lead: "Couldn't reach the runtime runner. Start it: <code>node runtime/runner.mjs</code>." } });
-      await this.fail(`runner unreachable: ${String((e as Error).message ?? e)}`);
+      await this.emit({ t: "message.append", message: { id: "no-runner", role: "agent", lead: "Couldn't start the runtime sandbox." } });
+      await this.fail(`sandbox unreachable: ${String((e as Error).message ?? e)}`);
     }
+  }
+
+  /** Trigger the hands: a Cloudflare Container in prod (env.SANDBOX), else the
+   *  host runner (local dev). The body carries per-job params; iterations include
+   *  mode:"iterate". Both server.mjs and runner.mjs handle /run by the body. */
+  private async triggerRuntime(body: Record<string, unknown>): Promise<void> {
+    if (this.env.SANDBOX) {
+      const c = getContainer(this.env.SANDBOX, this.runId);
+      const r = await c.fetch(new Request("http://sandbox/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+      if (!r.ok) throw new Error(`container ${r.status}`);
+      return;
+    }
+    const runner = this.env.RUNNER_URL ?? "http://localhost:8790/run";
+    const r = await fetch(runner, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(`runner ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  }
+
+  /** Stop the hands for this run (cancel). */
+  private async stopHands(token: string | null): Promise<void> {
+    if (this.env.SANDBOX) {
+      try { await getContainer(this.env.SANDBOX, this.runId).destroy(); } catch { /* ignore */ }
+      return;
+    }
+    const cancelUrl = (this.env.RUNNER_URL ?? "http://localhost:8790/run").replace(/\/run$/, "/cancel");
+    try { await fetch(cancelUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: this.runId, token }) }); } catch { /* ignore */ }
   }
 
   /** R2-served URL for an artifact this run uploaded, by its relative path. */
@@ -650,10 +670,7 @@ export class RunSession extends DurableObject<Env> {
     this.finished = true;
     this.clearTimers();
     const row = await this.env.DB.prepare("SELECT ingest_token AS token FROM runs WHERE id = ?").bind(this.runId).first<{ token: string | null }>();
-    const cancelUrl = (this.env.RUNNER_URL ?? "http://localhost:8790/run").replace(/\/run$/, "/cancel");
-    try {
-      await fetch(cancelUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: this.runId, token: row?.token }) });
-    } catch { /* the run is marked canceled regardless */ }
+    await this.stopHands(row?.token ?? null);
     await this.emit({ t: "message.append", message: { id: `cx-${this.seq}`, role: "agent", lead: "Run canceled." } });
     await this.emit({ t: "busy", value: false });
     await this.emit({ t: "error", message: "Run canceled." });
@@ -779,7 +796,6 @@ export class RunSession extends DurableObject<Env> {
       await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "I can't re-render this run — its runtime token is missing. Try a fresh run." } });
       return;
     }
-    const runner = this.env.RUNNER_URL ?? "http://localhost:8790/run";
 
     await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `On it — re-rendering variant **${card.id}**: ${text}` } });
     await this.emit({ t: "busy", value: true });
@@ -787,12 +803,7 @@ export class RunSession extends DurableObject<Env> {
     await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card.segLabel, busy: true, clock: `⏱ re-rendering ${card.id}` }) });
 
     try {
-      const res = await fetch(runner, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ runId: this.runId, token, backend, mode: "iterate", instruction: text, variantId: card.id, variantFile: file }),
-      });
-      if (!res.ok) throw new Error(`runner ${res.status}`);
+      await this.triggerRuntime({ runId: this.runId, token, backend, mode: "iterate", instruction: text, variantId: card.id, variantFile: file });
     } catch (e) {
       await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Couldn't start the re-render (${(e as Error).message}).` } });
       await this.emit({ t: "busy", value: false });

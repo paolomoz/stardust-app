@@ -26,10 +26,26 @@
   // config / its own local store). Deploy with `wrangler deploy --env production`.
   "env": {
     "production": {
+      "vars": { "PUBLIC_ORIGIN": "https://stardust-web-production.paolo-moz.workers.dev" },
       "durable_objects": {
-        "bindings": [{ "name": "RUN", "class_name": "RunSession" }]
+        "bindings": [
+          { "name": "RUN", "class_name": "RunSession" },
+          { "name": "SANDBOX", "class_name": "SandboxContainer" }
+        ]
       },
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RunSession"] }],
+      "migrations": [
+        { "tag": "v1", "new_sqlite_classes": ["RunSession"] },
+        { "tag": "v2", "new_sqlite_classes": ["SandboxContainer"] }
+      ],
+      "containers": [
+        {
+          "name": "stardust-sandbox",
+          "class_name": "SandboxContainer",
+          "image": "../sandbox/Dockerfile",
+          "instance_type": "standard-2",
+          "max_instances": 100
+        }
+      ],
       "d1_databases": [
         {
           "binding": "DB",
