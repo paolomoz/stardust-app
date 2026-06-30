@@ -26,13 +26,13 @@ real slowdowns + a perception gap.
   latency (and cost) materially.
 - **(see Parallelization)** — parallel variant builds is the largest wall-clock win.
 
-## Parallelization (exploring)
+## Parallelization (RECOMMENDED)
 
 Sequential today: extract → direct → prototype ×3 (each variant via
 `$impeccable craft` + in-browser QA + motion validation). The prototype phase
 (3× craft) dominates wall-clock.
 
-**Practical win: build the 3 variants in parallel.** A/B/C are independent bets
+**Practical win (recommended): build the 3 variants in parallel.** A/B/C are independent bets
 that share the SAME inputs (brand extraction, design system, the 3 directions) —
 no cross-variant dependency. So splitting them loses **no context richness**:
 each parallel worker reads the full brand/design context + its assigned
@@ -60,9 +60,24 @@ Costs / caveats:
   win is cross-variant, not within-variant.
 
 ## Cost (future)
-- Prompt caching (above). Per-user run cap. R2 retention policy (artifacts never
-  expire today). Cheaper-tier model for low-stakes iterations.
+- **Prompt caching** (above) — biggest lever (~15-18M cached tokens re-read/run).
+- **Idle container instances.** Right after deploy the `stardust-sandbox` app
+  showed 7-9 LIVE INSTANCES with zero runs. Confirm these aren't billed idle
+  `standard-2` instances (Cloudflare says unused pre-warmed images aren't
+  charged); if they are, tune min-instances / ensure scale-to-zero.
+- Per-user run cap (each Opus run ~$50-80). R2 retention policy — artifacts +
+  `_ctx/` never expire today, storage grows unbounded. Cheaper-tier model for
+  low-stakes iterations.
 
 ## Reliability / Scale (future)
-- Bedrock quota increase before high concurrency. Stuck-run watchdog (timeout).
-- Smaller image (slim base) for faster cold starts — optional.
+- **Bedrock quota** increase before high concurrency (the real 100-parallel cap;
+  pairs with parallel variant builds, which triple per-run concurrency).
+- **Stuck-run watchdog** (timeout) — a dead container can leave status=running.
+- **Image size.** Explored Cloudflare remote browsers (Browser Rendering): would
+  cut the image ~65% (~3.5 GB → ~1.2 GB) by removing local Chromium + slim base,
+  BUT it's a re-architecture (the plugins use the full Playwright API in-container;
+  remote browser = limited REST API or a Worker-only Puppeteer binding) and adds
+  its own concurrency cap — and image size isn't a real scaling constraint for
+  25-30 min runs (cold-start pull amortized). Verdict: not worth it. Cheap
+  alternative if ever wanted: `node:22-bookworm-slim` base (~0.5 GB off, no
+  code change).
