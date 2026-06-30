@@ -203,7 +203,7 @@ export function createConversation(app: App): Conversation {
     const s = lastState;
     const showEta = !!(s?.agentBusy && s.eta);
     etaWrap.hidden = !showEta;
-    suggestEl.hidden = showEta || !s || suggestionsFor(s).length === 0;
+    suggestEl.hidden = showEta || suggestEl.childElementCount === 0;
     if (showEta && s?.eta) {
       const elapsed = (Date.now() - s.eta.at) / 1000;
       const frac = Math.min(0.95, elapsed / Math.max(1, s.eta.seconds));
@@ -213,18 +213,36 @@ export function createConversation(app: App): Conversation {
   };
   setInterval(paintEta, 500);
 
+  const chipHtml = (x: { label: string; prompt?: string; nav?: string }) =>
+    `<button class="schip"${x.nav ? ` data-nav="${x.nav}"` : ` data-prompt="${esc(x.prompt ?? "")}"`}>${esc(x.label)}</button>`;
+
+  // LLM next-step suggestions, cached per (run, screen, message-count). Static
+  // per-screen chips render immediately as a fallback, then get upgraded.
+  const sugCache: Record<string, string[]> = {};
+  let sugInflight = "";
   const renderSuggestions = (s: RunState) => {
-    const list = suggestionsFor(s);
-    suggestEl.innerHTML = list
-      .map((x) => `<button class="schip"${x.nav ? ` data-nav="${x.nav}"` : ` data-prompt="${esc(x.prompt ?? "")}"`}>${esc(x.label)}</button>`)
-      .join("");
+    suggestEl.innerHTML = suggestionsFor(s).map(chipHtml).join(""); // immediate fallback
+    if (!s.runId || s.agentBusy) return;
+    const key = `${s.runId}:${s.screen}:${s.messages.length}`;
+    const paint = (items: string[]) => {
+      const cur = store.get();
+      if (cur.runId === s.runId && cur.screen === s.screen && !cur.agentBusy && items.length)
+        suggestEl.innerHTML = items.map((t) => chipHtml({ label: t, prompt: t })).join("");
+    };
+    if (sugCache[key]) { paint(sugCache[key]); return; }
+    if (sugInflight === key) return;
+    sugInflight = key;
+    void fetch(`/api/runs/${s.runId}/suggest?screen=${s.screen}`)
+      .then((r) => r.json())
+      .then((j: { suggestions?: string[] }) => { const items = (j.suggestions ?? []).filter(Boolean).slice(0, 2); if (items.length) { sugCache[key] = items; paint(items); } })
+      .catch(() => {});
   };
 
   let suggestKey = "";
   const update = (s: RunState) => {
     lastState = s;
-    // re-render chips only when the relevant state changes (avoids clobbering)
-    const key = `${s.screen}:${s.snapshotReady}`;
+    // re-render chips when the run/screen/conversation changes (avoids clobbering)
+    const key = `${s.runId}:${s.screen}:${s.messages.length}:${s.agentBusy}`;
     if (key !== suggestKey) { renderSuggestions(s); suggestKey = key; }
     paintEta();
     projEl.textContent = s.projectName || "—";

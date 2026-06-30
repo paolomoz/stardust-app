@@ -5,6 +5,7 @@
 import { RunSession } from "./runSession";
 import { SandboxContainer } from "./sandbox";
 import { startOAuth, handleCallback, getSessionUser, logout, devLogin } from "./auth";
+import { suggestNextSteps } from "./suggest";
 export { RunSession, SandboxContainer };
 
 export interface Env {
@@ -18,6 +19,7 @@ export interface Env {
   // Model keys (Worker secrets in prod) — injected into the container by SandboxContainer.
   BEDROCK_API_KEY?: string;
   BEDROCK_MODEL?: string;
+  BEDROCK_HAIKU_MODEL?: string;
   BEDROCK_REGION?: string;
   CEREBRAS_API_KEY?: string;
   CEREBRAS_MODEL?: string;
@@ -48,6 +50,7 @@ const INGEST_ARTIFACT = /^\/api\/ingest\/([^/]+)\/artifact\/(.+)$/;
 const PUBLISH = /^\/api\/runs\/([^/]+)\/publish$/;
 const UNPUBLISH = /^\/api\/runs\/([^/]+)\/unpublish$/;
 const PUBLISHED = /^\/api\/runs\/([^/]+)\/published$/;
+const SUGGEST = /^\/api\/runs\/([^/]+)\/suggest$/;
 const PUBLIC = /^\/p\/([^/]+)$/;
 
 /** Owner gate for viewing a run / its artifacts. Legacy runs with no owner
@@ -159,6 +162,15 @@ export default {
       if (!user || (await runOwner(env, runId)) !== user.id) return Response.json({ published: [] });
       const { results } = await env.DB.prepare("SELECT token, path, title FROM published WHERE run_id = ?").bind(runId).all();
       return Response.json({ published: results ?? [] });
+    }
+
+    // LLM next-step suggestions (owner-gated). Cheap Haiku call; [] on any miss.
+    const sugM = path.match(SUGGEST);
+    if (sugM && request.method === "GET") {
+      const runId = sugM[1];
+      if (!(await canViewRun(env, runId, request))) return Response.json({ suggestions: [] });
+      const suggestions = await suggestNextSteps(env, runId, url.searchParams.get("screen") ?? "workspace");
+      return Response.json({ suggestions });
     }
 
     // Public link: /p/<token> → redirect to the (now public) artifact.
