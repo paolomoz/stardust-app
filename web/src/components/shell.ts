@@ -61,6 +61,12 @@ export function viewTabs(state: RunState): string {
   return `<div class="seg tabs" role="group" aria-label="views">${tab("brand", "Brand")}${tab("variants", "Directions")}${tab("workspace", "Workspace")}</div>`;
 }
 
+/** Subheader left for a phase: the top-level phase label + its view tabs
+ *  (matches the "overview" label on the dashboard). */
+export function viewNav(label: string, state: RunState): string {
+  return `<span class="eyebrow ovw">${esc(label)}</span><span class="segdiv"></span>${viewTabs(state)}`;
+}
+
 export function rail(r: RailState): string {
   const items: string[] = [];
   if (r.busy) {

@@ -5,7 +5,7 @@ import { h } from "../dom";
 import type { App, Screen } from "../controller";
 import type { RunState, VariantId } from "../state";
 import { store } from "../state";
-import { topbar, viewTabs, rail, syncRail } from "../components/shell";
+import { topbar, viewNav, rail, syncRail } from "../components/shell";
 import { segSwitch, viewportToggle, openInTab, previewIframe } from "../components/preview";
 import { wireActions } from "./working";
 import { publishArtifact, unpublishArtifact, fetchPublished } from "../driver/liveDriver";
@@ -25,7 +25,7 @@ export function workspace(state: RunState, app: App): Screen {
       <section class="conv conv-mount" aria-label="conversation"></section>
       <section class="panel" aria-label="prototype preview">
         <div class="subheader">
-          <div class="sub-left"><span class="vtabs-slot">${viewTabs(state)}</span><span class="segdiv"></span>${segSwitch(state.variants, state.activeVariant)}</div>
+          <div class="sub-left"><span class="vtabs-slot">${viewNav("uplift", state)}</span><span class="segdiv"></span>${segSwitch(state.variants, state.activeVariant)}</div>
           <div class="sub-right"><span class="pubctl"></span>${viewportToggle(state.viewport)}${openInTab(cur.src)}</div>
         </div>
         ${previewIframe(cur.src, `${state.projectName} redesign — variant ${cur.id}`, state.viewport)}
@@ -90,7 +90,7 @@ export function workspace(state: RunState, app: App): Screen {
     renderPub(s);
     // refresh the view tabs (active/enabled) without disturbing the variant seg
     const vtabs = el.querySelector<HTMLElement>(".vtabs-slot");
-    if (vtabs) vtabs.innerHTML = viewTabs(s);
+    if (vtabs) vtabs.innerHTML = viewNav("uplift", s);
     // footer rail (palette/clock) — re-render in place on state change
     syncRail(el, s.rail);
     // reload the iframe when the variant changes OR its src does (in-place

@@ -2,7 +2,7 @@
 import { h, esc } from "../dom";
 import type { App, Screen } from "../controller";
 import type { RunState, VariantCard } from "../state";
-import { topbar, viewTabs, rail, syncRail } from "../components/shell";
+import { topbar, viewNav, rail, syncRail } from "../components/shell";
 import { wireActions } from "./working";
 
 function card(v: VariantCard): string {
@@ -39,7 +39,7 @@ export function variants(state: RunState, app: App): Screen {
       <section class="conv conv-mount" aria-label="conversation"></section>
       <section class="panel" aria-label="directions">
         <div class="subheader">
-          <div class="sub-left">${viewTabs(state)}</div>
+          <div class="sub-left">${viewNav("uplift", state)}</div>
           <div class="sub-right"><span style="font:500 12px/1 var(--mono);color:var(--fg-faint)">click a card to iterate</span></div>
         </div>
         <div class="cardbody">
@@ -64,7 +64,7 @@ export function variants(state: RunState, app: App): Screen {
   const update = (s: RunState) => {
     syncRail(el, s.rail);
     const tabs = el.querySelector<HTMLElement>(".sub-left");
-    if (tabs) tabs.innerHTML = viewTabs(s);
+    if (tabs) tabs.innerHTML = viewNav("uplift", s);
   };
   return { el, update };
 }

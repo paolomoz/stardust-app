@@ -2,7 +2,7 @@
 import { h, esc } from "../dom";
 import type { App, Screen } from "../controller";
 import type { RunState } from "../state";
-import { topbar, viewTabs, rail, syncRail } from "../components/shell";
+import { topbar, viewNav, rail, syncRail } from "../components/shell";
 import { openInTab } from "../components/preview";
 import { search } from "../components/icons";
 import { wireActions } from "./working";
@@ -14,7 +14,7 @@ export function brand(state: RunState, app: App): Screen {
       <section class="conv conv-mount" aria-label="conversation"></section>
       <section class="panel" aria-label="brand review">
         <div class="subheader">
-          <div class="sub-left">${viewTabs(state)}</div>
+          <div class="sub-left">${viewNav("uplift", state)}</div>
           <div class="sub-right">
             <button class="auditbtn">${search} Run audit</button>
             ${openInTab(state.brandReviewUrl)}
@@ -31,7 +31,7 @@ export function brand(state: RunState, app: App): Screen {
   const update = (s: RunState) => {
     syncRail(el, s.rail);
     const tabs = el.querySelector<HTMLElement>(".sub-left");
-    if (tabs) tabs.innerHTML = viewTabs(s);
+    if (tabs) tabs.innerHTML = viewNav("uplift", s);
   };
   return { el, update };
 }
