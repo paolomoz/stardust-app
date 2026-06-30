@@ -466,14 +466,34 @@ export class RunSession extends DurableObject<Env> {
    *  mode:"iterate". Both server.mjs and runner.mjs handle /run by the body. */
   private async triggerRuntime(body: Record<string, unknown>): Promise<void> {
     if (this.env.SANDBOX) {
+      // Secrets don't reach the Container DO's env (only vars do), so pass the
+      // model keys + ingest origin from THIS DO's env (which has them) in the body.
+      const job = { ...body, modelEnv: this.modelEnv() };
       const c = getContainer(this.env.SANDBOX, this.runId);
-      const r = await c.fetch(new Request("http://sandbox/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+      const r = await c.fetch(new Request("http://sandbox/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(job) }));
       if (!r.ok) throw new Error(`container ${r.status}`);
       return;
     }
     const runner = this.env.RUNNER_URL ?? "http://localhost:8790/run";
     const r = await fetch(runner, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     if (!r.ok) throw new Error(`runner ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  }
+
+  /** Model keys + ingest origin from this DO's env, to hand to the container
+   *  (its own env doesn't carry secrets). */
+  private modelEnv(): Record<string, string> {
+    const e: Record<string, string> = {};
+    if (this.env.PUBLIC_ORIGIN) e.INGEST_BASE = this.env.PUBLIC_ORIGIN;
+    if (this.env.BEDROCK_API_KEY) {
+      e.BEDROCK_API_KEY = this.env.BEDROCK_API_KEY;
+      e.BEDROCK_MODEL = this.env.BEDROCK_MODEL ?? "us.anthropic.claude-opus-4-8";
+      e.BEDROCK_REGION = this.env.BEDROCK_REGION ?? "us-east-1";
+    }
+    if (this.env.CEREBRAS_API_KEY) {
+      e.CEREBRAS_API_KEY = this.env.CEREBRAS_API_KEY;
+      e.CEREBRAS_MODEL = this.env.CEREBRAS_MODEL ?? "gemma-4-31b";
+    }
+    return e;
   }
 
   /** Stop the hands for this run (cancel). */

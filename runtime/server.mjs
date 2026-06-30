@@ -21,7 +21,10 @@ const INGEST_BASE = process.env.INGEST_BASE; // public Worker origin (container 
 /** Per-job env for the agent.mjs child: job params over the container's own env
  *  (which carries the model keys + INGEST_BASE). Mirrors runner.mjs's injection. */
 function jobEnv(job) {
-  const e = { ...process.env, RUN_ID: job.runId, INGEST_TOKEN: job.token, INGEST_BASE };
+  // job.modelEnv carries the model keys + ingest origin from the Worker DO
+  // (the container's own env doesn't get secrets). Overrides container env.
+  const e = { ...process.env, ...(job.modelEnv || {}), RUN_ID: job.runId, INGEST_TOKEN: job.token };
+  if (!e.INGEST_BASE) e.INGEST_BASE = INGEST_BASE;
   if (job.url) e.TARGET_URL = job.url;
   if (job.backend) e.MODEL_BACKEND = job.backend;
   if (job.mode === "iterate") {
