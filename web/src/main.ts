@@ -13,6 +13,7 @@ import { variants } from "./screens/variants";
 import { workspace } from "./screens/workspace";
 import { createConversation } from "./components/conversation";
 import { mountToasts } from "./components/toasts";
+import { mountSwitcher } from "./components/switcher";
 import { login } from "./screens/login";
 import { fetchMe } from "./auth";
 import type { ArtifactRef } from "./state";
@@ -82,6 +83,9 @@ const app: App = {
     else goView("brand");
   },
   restart: () => { resetRun(); history.replaceState(null, "", location.pathname); },
+  // In-place project switch: reopen the run (resets + reconnects) and show the
+  // Overview board immediately so there's no flash of the landing.
+  switchProject: (id: string) => { reopenRun(id); store.set({ screen: "working" }); },
   cancel: () => cancelRun(),
   setVariant: (id: VariantId) => {
     store.set({ activeVariant: id });
@@ -111,6 +115,7 @@ let current: Screen | null = null;
 // chat (content + scroll) is identical across working/brand/variants/workspace.
 const conversation = createConversation(app);
 mountToasts(app);
+mountSwitcher(app);
 
 function asScreen(r: Screen | HTMLElement): Screen {
   return r instanceof HTMLElement ? { el: r } : r;

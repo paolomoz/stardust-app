@@ -17,12 +17,12 @@ function relTime(ms: number): string {
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
 }
-function runRow(r: RunSummary): string {
+function projCard(r: RunSummary): string {
   const title = r.project || cleanUrl(r.url);
-  return `<button class="runrow" data-run="${esc(r.id)}">
-    <span class="rs rs-${esc(r.status)}"></span>
-    <span class="rt"><span class="rname">${esc(title)}</span><span class="rmeta">${esc(r.status)} · ${relTime(r.created_at)}</span></span>
-    <span class="rarr">→</span>
+  return `<button class="projcard" data-run="${esc(r.id)}">
+    <span class="pc-top"><span class="rs rs-${esc(r.status)}"></span><span class="pc-meta">${esc(r.status)} · ${relTime(r.created_at)}</span></span>
+    <span class="pc-name">${esc(title)}</span>
+    <span class="pc-host">${esc(cleanUrl(r.url))}</span>
   </button>`;
 }
 
@@ -41,8 +41,8 @@ export function landing(_state: RunState, app: App): HTMLElement {
         <button class="send" aria-label="start">${sendArrowLg}</button>
       </div>
       <div class="yourruns">
-        <div class="yr-h">Your runs</div>
-        <div class="yr-list"><div class="yr-empty">Loading…</div></div>
+        <div class="yr-h">Your projects</div>
+        <div class="proj-grid"><div class="yr-empty">Loading…</div></div>
       </div>
     </div>
     <div class="corner">ADOBE · STARDUST · v0.1</div>
@@ -59,16 +59,16 @@ export function landing(_state: RunState, app: App): HTMLElement {
   });
   el.querySelector<HTMLButtonElement>(".userchip")?.addEventListener("click", () => void logout());
 
-  // Your runs — resume any past run.
-  const list = el.querySelector<HTMLElement>(".yr-list")!;
+  // Your projects — resume any past project (in-place, no full reload).
+  const list = el.querySelector<HTMLElement>(".proj-grid")!;
   void listRuns().then((runs) => {
     if (!runs.length) {
-      list.innerHTML = `<div class="yr-empty">No runs yet — paste a URL above to start your first redesign.</div>`;
+      list.innerHTML = `<div class="yr-empty">No projects yet — paste a URL above to start your first redesign.</div>`;
       return;
     }
-    list.innerHTML = runs.map(runRow).join("");
-    list.querySelectorAll<HTMLButtonElement>(".runrow[data-run]").forEach((b) =>
-      b.addEventListener("click", () => { location.href = `/?run=${b.getAttribute("data-run")}`; }),
+    list.innerHTML = runs.map(projCard).join("");
+    list.querySelectorAll<HTMLButtonElement>(".projcard[data-run]").forEach((b) =>
+      b.addEventListener("click", () => app.switchProject(b.getAttribute("data-run")!)),
     );
   });
 

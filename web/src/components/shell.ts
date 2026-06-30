@@ -37,7 +37,7 @@ export function topbar(state: RunState, actions: TopbarAction[]): string {
   return `<header class="topbar">
     <div class="brand">
       <button class="brandlink" data-act="root" aria-label="stardust — your runs">${starHeader}<span class="name"><b>stardust</b></span></button>
-      ${inRun ? `<span class="dot">·</span><button class="site brandlink" data-act="dashboard">${esc(state.projectName)} <span class="redesign">redesign</span></button>` : ""}
+      ${inRun ? `<span class="dot">·</span><button class="site brandlink" data-act="dashboard">${esc(state.projectName)} <span class="redesign">redesign</span></button><button class="switcher-btn" data-act="switcher" aria-label="switch project" title="Switch project">▾</button>` : ""}
     </div>
     ${inRun ? `<nav class="ladder" aria-label="phases">${PHASES.map(rung).join("")}</nav>` : ""}
     <div class="spacer"></div>

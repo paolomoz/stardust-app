@@ -161,3 +161,12 @@
 .berror { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 20px; margin-bottom: 14px; border: 1px solid var(--hairline-soft); border-radius: 13px; background: var(--surface); }
 .berror .errmark { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(180,69,47,0.12); color: var(--danger, #b4452f); font-weight: 700; }
 .berror .errmsg { color: var(--fg-dim); font-size: 13px; }
+
+/* --- projects home (landing gallery) --- */
+.proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; width: 100%; margin-top: 4px; }
+.projcard { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 13px 14px; border: 1px solid var(--hairline-soft); border-radius: 12px; background: var(--surface); cursor: pointer; text-align: left; transition: border-color .15s var(--ease), transform .15s var(--ease); }
+.projcard:hover { border-color: var(--hairline); transform: translateY(-1px); }
+.projcard .pc-top { display: flex; align-items: center; gap: 7px; }
+.projcard .pc-meta { font: 500 10.5px/1 var(--mono); color: var(--fg-faint); }
+.projcard .pc-name { font: 600 14px/1.2 var(--display); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.projcard .pc-host { font: 500 11px/1 var(--mono); color: var(--fg-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }

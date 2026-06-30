@@ -26,8 +26,10 @@ export interface App {
   goView(screen: ScreenId): void;
   /** Enter the uplift phase from the header rung → its furthest-ready view. */
   goUplift(): void;
-  /** Reset everything to the landing screen. */
+  /** Reset everything to the projects home (landing). */
   restart(): void;
+  /** Switch to another project in-place (reopen its run, no full reload). */
+  switchProject(id: string): void;
   /** Stop an in-flight run (Stop button on the working screen). */
   cancel(): void;
   /** Workspace: switch the active variant (hot-swaps the iframe). */

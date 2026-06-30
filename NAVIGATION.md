@@ -8,7 +8,7 @@ the "Product / flow ladder" item in IMPROVEMENTS.md.
 Almost every navigation problem today comes from conflating three distinct
 hierarchies. Name and separate them:
 
-1. **Runs** — *which project* am I in. (start new / pick from "Your runs")
+1. **Projects** — *which project* am I in. (start new / pick from "Your projects")
 2. **Phases** — *where in the journey*: **uplift · prototype · deploy · rollout · audit**.
 3. **Views** — *within a phase, what am I looking at*: for uplift →
    working board / brand / directions / a variant.
@@ -55,6 +55,21 @@ buttons.
 This **removes the one-way chain and the Back buttons** (tabs + ladder replace
 them), makes the **ladder a real navigator**, and gives the dashboard +
 deploy/rollout phases a natural home as they come online.
+
+## Projects (level 1) — switching
+
+A run is surfaced to the user as a **project** (one URL redesign = one project;
+"run" stays the internal/API term). Two ways to switch, both **in-place** (no
+full reload — `reopenRun(id)`, URL → `/?run=<id>`):
+
+- **Projects home** — the `stardust` logo → the landing, now **"Your projects"**
+  (a card gallery: title · host · status · age) + the new-project field.
+- **Header switcher** — a **▾** next to the project name opens a dropdown:
+  recent projects (quick switch) · ＋ New project · All projects. Mounted on
+  `document` so it survives the per-screen topbar re-render.
+- **Multi-tab** still works (each project is a `/?run=<id>` URL).
+
+Backend unchanged — `/api/runs` is already per-user (you see only your projects).
 
 ## Audit (a top-level phase)
 
