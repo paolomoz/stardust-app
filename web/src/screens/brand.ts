@@ -2,7 +2,7 @@
 import { h, esc } from "../dom";
 import type { App, Screen } from "../controller";
 import type { RunState } from "../state";
-import { topbar, rail } from "../components/shell";
+import { topbar, rail, syncRail } from "../components/shell";
 import { convHead, composer, thread } from "../components/conversation";
 import { openInTab } from "../components/preview";
 import { search } from "../components/icons";
@@ -39,6 +39,7 @@ export function brand(state: RunState, app: App): Screen {
   wireComposer(el, app, "brand");
 
   const update = (s: RunState) => {
+    syncRail(el, s.rail);
     const t = el.querySelector(".conv-thread");
     if (t) t.outerHTML = thread(s.messages, KNACK_SEED_NOTE);
   };

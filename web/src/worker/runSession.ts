@@ -68,6 +68,7 @@ export class RunSession extends DurableObject<Env> {
   private tasks: TaskItem[] = [];
   private realTensions: { n: string; text: string }[] = [];
   private realBrand?: { brandReviewUrl: string; tensions: { n: string; text: string }[] };
+  private realPalette?: string[]; // extracted brand palette (footer swatches); KNACK_PALETTE is demo-only
   private realVariants?: { sharedFixes: string[]; variants: VariantCard[] };
   // M6: workspace iteration. activeVariant is the target a "tell me a change"
   // applies to; iterVersion cache-busts the iframe src on each re-render.
@@ -107,6 +108,15 @@ export class RunSession extends DurableObject<Env> {
         this.seq = rows.length;
         await this.rehydrateResult(runId);
         for (const ev of this.events) server.send(JSON.stringify(ev));
+        // Stored rail events carry swatches baked in at run time (KNACK demo for
+        // older runs). If we know the real palette, resend the last rail with it
+        // corrected — display-only, not persisted.
+        if (this.realPalette?.length) {
+          const lastRail = [...this.events].reverse().find((ev) => ev.t === "rail");
+          if (lastRail && lastRail.t === "rail") {
+            server.send(JSON.stringify({ t: "rail", rail: { ...lastRail.rail, swatches: this.realPalette } }));
+          }
+        }
       } else {
         void this.start(runId);
       }
@@ -158,6 +168,12 @@ export class RunSession extends DurableObject<Env> {
       clearInterval(this.ticker);
       this.ticker = undefined;
     }
+  }
+
+  /** Build a rail state, using the run's extracted palette for the footer
+   *  swatches (KNACK_PALETTE is only the scripted-demo fallback). */
+  private railState(partial: Omit<RailState, "swatches">): RailState {
+    return { swatches: this.realPalette ?? KNACK_PALETTE, ...partial };
   }
 
   /* ---- the scripted run ---- */
@@ -436,7 +452,7 @@ export class RunSession extends DurableObject<Env> {
    *  tasks.init so labels/details reflect the real run, not canned demo copy. */
   async ingestEvent(runId: string, ev: unknown): Promise<void> {
     if (!this.runId) this.runId = runId;
-    const e = (ev ?? {}) as { type?: string; text?: string; name?: string; phase?: string; event?: string; seed?: string; items?: { n: string; text: string }[]; brandReview?: string; sharedFixes?: string[]; variants?: unknown[]; variant?: string; file?: string; message?: string };
+    const e = (ev ?? {}) as { type?: string; text?: string; name?: string; phase?: string; event?: string; seed?: string; items?: { n: string; text: string }[]; brandReview?: string; sharedFixes?: string[]; variants?: unknown[]; variant?: string; file?: string; message?: string; palette?: string[] };
 
     // Narration / tool activity from the open-loop runtime → conversation thread.
     if (e.type === "narration" && e.text) {
@@ -454,7 +470,7 @@ export class RunSession extends DurableObject<Env> {
       if (e.event === "failed") {
         await this.emit({ t: "message.append", message: { id: `iterr-${this.seq}`, role: "agent", lead: `Couldn't apply that change${e.message ? ` — ${e.message}` : ""}. The variant is unchanged — try rephrasing.` } });
         const card = this.realVariants?.variants.find((v) => v.id === this.activeVariant) ?? this.realVariants?.variants.slice(-1)[0];
-        await this.emit({ t: "rail", rail: rail({ signature: "watch it build", variant: card?.segLabel ?? "—", clock: "⏱ ready to iterate" }) });
+        await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card?.segLabel ?? "—", clock: "⏱ ready to iterate" }) });
         return;
       }
       await this.hotSwapVariant(e.variant, e.file);
@@ -491,6 +507,7 @@ export class RunSession extends DurableObject<Env> {
       await advance("read", "extract", 40, "identifying tensions");
     } else if (e.phase === "extract" && e.event === "brand_ready") {
       this.realBrand = { brandReviewUrl: this.art(e.brandReview ?? "brand-review.html"), tensions: this.realTensions };
+      if (Array.isArray(e.palette) && e.palette.length) this.realPalette = e.palette.slice(0, 6);
       await this.persistResult();
       await advance("extract", "analyze", 58, "brand surface captured");
       await this.emit({ t: "message.append", message: { id: `brand-${this.seq}`, role: "agent", lead: "Brand surface captured — open the snapshot." } });
@@ -531,7 +548,7 @@ export class RunSession extends DurableObject<Env> {
   /** Persist the real result (brand + variants) so a finished run can be
    *  reopened (/?run=<id>) and its brand/variants screens rebuilt. */
   private async persistResult(): Promise<void> {
-    const result = JSON.stringify({ uplift: true, brand: this.realBrand ?? null, variants: this.realVariants ?? null });
+    const result = JSON.stringify({ uplift: true, brand: this.realBrand ?? null, variants: this.realVariants ?? null, palette: this.realPalette ?? null });
     await this.env.DB.prepare("UPDATE runs SET result_json = ? WHERE id = ?").bind(result, this.runId).run();
   }
 
@@ -543,10 +560,12 @@ export class RunSession extends DurableObject<Env> {
         uplift?: boolean;
         brand?: { brandReviewUrl: string; tensions: { n: string; text: string }[] } | null;
         variants?: { sharedFixes: string[]; variants: VariantCard[] } | null;
+        palette?: string[] | null;
       };
       this.uplift = !!r.uplift;
       if (r.brand) this.realBrand = r.brand;
       if (r.variants) this.realVariants = r.variants;
+      if (r.palette?.length) this.realPalette = r.palette;
     } catch {
       /* ignore malformed */
     }
@@ -559,7 +578,7 @@ export class RunSession extends DurableObject<Env> {
     // workspace is open, hot-swap the preview (M6 leans on this). For M5 we just
     // note the brand surface / variants landing.
     if (/proposed\.html$/.test(rel) || /brand-review\.html$/.test(rel)) {
-      await this.emit({ t: "rail", rail: { swatches: this.realVariants?.variants.length ? KNACK_PALETTE : [], busy: true, clock: `⏱ received ${rel.split("/").pop()}` } });
+      await this.emit({ t: "rail", rail: { swatches: this.realPalette ?? [], busy: true, clock: `⏱ received ${rel.split("/").pop()}` } });
     }
   }
 
@@ -613,7 +632,7 @@ export class RunSession extends DurableObject<Env> {
         ];
     await this.emit({ t: "messages", messages });
     await this.emit({ t: "panel.brand", brandReviewUrl: url, tensions });
-    await this.emit({ t: "rail", rail: rail({ note: "brand surface captured", tensions: tensions.length, clock: "⏱ captured" }) });
+    await this.emit({ t: "rail", rail: this.railState({ note: "brand surface captured", tensions: tensions.length, clock: "⏱ captured" }) });
     await this.emit({ t: "screen", screen: "brand" });
   }
 
@@ -637,7 +656,7 @@ export class RunSession extends DurableObject<Env> {
         ];
     await this.emit({ t: "messages", messages });
     await this.emit({ t: "panel.variants", sharedFixes, variants: cards });
-    await this.emit({ t: "rail", rail: rail({ signature: "watch it build", tensions: sharedFixes.length, clock: "⏱ 3 directions ready" }) });
+    await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", tensions: sharedFixes.length, clock: "⏱ 3 directions ready" }) });
     await this.emit({ t: "screen", screen: "variants" });
   }
 
@@ -656,7 +675,7 @@ export class RunSession extends DurableObject<Env> {
     ];
     await this.emit({ t: "panel.workspace", activeVariant: id, variants: cards });
     await this.emit({ t: "messages", messages });
-    await this.emit({ t: "rail", rail: rail({ signature: "watch it build", variant: card.segLabel, clock: "⏱ ready to iterate" }) });
+    await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card.segLabel, clock: "⏱ ready to iterate" }) });
     await this.emit({ t: "screen", screen: "workspace" });
     await this.env.DB.prepare("UPDATE runs SET status = 'done' WHERE id = ?").bind(this.runId).run();
   }
@@ -710,7 +729,7 @@ export class RunSession extends DurableObject<Env> {
     const runner = this.env.RUNNER_URL ?? "http://localhost:8790/run";
 
     await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `On it — re-rendering variant <b>${card.id}</b>: ${text}` } });
-    await this.emit({ t: "rail", rail: rail({ signature: "watch it build", variant: card.segLabel, busy: true, clock: `⏱ re-rendering ${card.id}` }) });
+    await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card.segLabel, busy: true, clock: `⏱ re-rendering ${card.id}` }) });
 
     try {
       const res = await fetch(runner, {
@@ -721,7 +740,7 @@ export class RunSession extends DurableObject<Env> {
       if (!res.ok) throw new Error(`runner ${res.status}`);
     } catch (e) {
       await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Couldn't start the re-render (${(e as Error).message}).` } });
-      await this.emit({ t: "rail", rail: rail({ signature: "watch it build", variant: card.segLabel, clock: "⏱ ready to iterate" }) });
+      await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card.segLabel, clock: "⏱ ready to iterate" }) });
     }
   }
 
@@ -739,11 +758,7 @@ export class RunSession extends DurableObject<Env> {
     const card = variants.find((c) => c.id === active) ?? variants[variants.length - 1];
     await this.emit({ t: "panel.workspace", activeVariant: active, variants });
     await this.emit({ t: "message.append", message: { id: `it-${this.seq}`, role: "agent", lead: `Done — re-rendered variant <b>${active}</b>. Switch variants or ask for another change.` } });
-    await this.emit({ t: "rail", rail: rail({ signature: "watch it build", variant: card.segLabel, clock: "⏱ re-rendered" }) });
+    await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card.segLabel, clock: "⏱ re-rendered" }) });
   }
 }
 
-/** Build a rail state with the shared knack palette. */
-function rail(partial: Omit<RailState, "swatches">): RailState {
-  return { swatches: KNACK_PALETTE, ...partial };
-}

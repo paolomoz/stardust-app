@@ -3,7 +3,7 @@
 import { h, esc } from "../dom";
 import type { App, Screen } from "../controller";
 import type { RunState, TaskItem } from "../state";
-import { topbar, rail } from "../components/shell";
+import { topbar, rail, syncRail } from "../components/shell";
 import { convHead, composer, message } from "../components/conversation";
 import { bigStar, taskIcons } from "../components/icons";
 import { KNACK_SEED_NOTE } from "../data/knack";
@@ -70,6 +70,7 @@ export function working(state: RunState, app: App): Screen {
   });
 
   const update = (s: RunState) => {
+    syncRail(el, s.rail);
     // if the task set arrived/changed after mount, (re)build the rows
     const container = el.querySelector<HTMLElement>(".tasks");
     if (container && container.querySelectorAll(".task").length !== s.tasks.length) {

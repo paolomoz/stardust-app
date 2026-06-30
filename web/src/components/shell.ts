@@ -40,3 +40,10 @@ export function rail(r: RailState): string {
   if (r.clock) items.push(`<div class="item clock">${esc(r.clock)}</div>`);
   return `<footer class="rail">${items.join("")}</footer>`;
 }
+
+/** Re-render the footer rail in place when run state changes (palette, clock,
+ *  variant). The rail is otherwise rendered once at mount. */
+export function syncRail(el: HTMLElement, r: RailState): void {
+  const footer = el.querySelector(".rail");
+  if (footer) footer.outerHTML = rail(r);
+}

@@ -2,7 +2,7 @@
 import { h, esc } from "../dom";
 import type { App, Screen } from "../controller";
 import type { RunState, VariantCard } from "../state";
-import { topbar, rail } from "../components/shell";
+import { topbar, rail, syncRail } from "../components/shell";
 import { convHead, composer, thread } from "../components/conversation";
 import { KNACK_SEED_NOTE } from "../data/knack";
 import { wireActions, wireComposer } from "./working";
@@ -72,6 +72,7 @@ export function variants(state: RunState, app: App): Screen {
   );
 
   const update = (s: RunState) => {
+    syncRail(el, s.rail);
     const t = el.querySelector(".conv-thread");
     if (t) t.outerHTML = thread(s.messages, KNACK_SEED_NOTE);
   };

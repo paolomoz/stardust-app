@@ -76,7 +76,7 @@ boundary is true — do NOT batch at the end. Emit, in order:
 - `emit_milestone(phase="extract", event="started")`
 - `emit_milestone(phase="extract", event="seed", data={"seed":"<hash>"})`
 - `emit_milestone(phase="extract", event="tensions", data={"items":[{"n":"01","text":"…"}, …]})`
-- `emit_milestone(phase="extract", event="brand_ready", data={"brandReview":"brand-review.html"})`
+- `emit_milestone(phase="extract", event="brand_ready", data={"brandReview":"brand-review.html", "palette":["#011565","#0045ff","#ffcd00", …]})` — `palette` is the brand's key colors as hex, **most brand-defining first** (primary, then accents/surfaces); skip plain white/near-white backgrounds; 4–6 entries. Take them straight from your extracted palette.
 - `emit_milestone(phase="direct", event="variants_ready", data={"sharedFixes":["…"],"variants":[{"id":"A","title":"…","pitch":"…","whatif":"…","role":"…","file":"home-A-proposed.html","thumb":"assets/thumb-A.png"}, …]})`
 - `emit_milestone(phase="prototype", event="variant_done", data={"variant":"C"})` (one per variant)
 - `emit_milestone(phase="done")` — the LAST thing you do.

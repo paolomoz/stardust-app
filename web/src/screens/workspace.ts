@@ -3,7 +3,7 @@
 import { h } from "../dom";
 import type { App, Screen } from "../controller";
 import type { RunState, VariantId } from "../state";
-import { topbar, rail } from "../components/shell";
+import { topbar, rail, syncRail } from "../components/shell";
 import { convHead, composer, thread } from "../components/conversation";
 import { segSwitch, viewportToggle, openInTab, previewIframe } from "../components/preview";
 import { KNACK_SEED_NOTE } from "../data/knack";
@@ -53,6 +53,8 @@ export function workspace(state: RunState, app: App): Screen {
   el.querySelector("#vMob")!.addEventListener("click", () => app.setViewport("mobile"));
 
   const update = (s: RunState) => {
+    // footer rail (palette/clock) — re-render in place on state change
+    syncRail(el, s.rail);
     // conversation
     const t = el.querySelector(".conv-thread");
     if (t) t.outerHTML = thread(s.messages, KNACK_SEED_NOTE);
