@@ -3,6 +3,7 @@
    wrangler assets.run_worker_first); everything else falls through to the SPA.
    =========================================================================== */
 import { RunSession } from "./runSession";
+import { startOAuth, handleCallback, getSessionUser, logout } from "./auth";
 export { RunSession };
 
 export interface Env {
@@ -10,6 +11,14 @@ export interface Env {
   DB: D1Database;
   BUCKET: R2Bucket;
   ASSETS: Fetcher;
+  // OAuth (web/.dev.vars locally / wrangler secrets in prod). Google = one client
+  // (both redirect URIs); GitHub = separate dev/prod apps (one callback each).
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GITHUB_CLIENT_ID_DEV?: string;
+  GITHUB_CLIENT_SECRET_DEV?: string;
+  GITHUB_CLIENT_ID_PROD?: string;
+  GITHUB_CLIENT_SECRET_PROD?: string;
   // Managed Agents (from web/.dev.vars locally / secrets in prod). Optional:
   // when absent, runs fall back to the scripted demo.
   ANTHROPIC_API_KEY?: string;
@@ -42,8 +51,21 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // Create a run.
+    // ---- Auth ----
+    if (path === "/auth/google") return startOAuth("google", request, env);
+    if (path === "/auth/github") return startOAuth("github", request, env);
+    if (path === "/auth/google/callback") return handleCallback("google", request, env);
+    if (path === "/auth/github/callback") return handleCallback("github", request, env);
+    if (path === "/auth/logout" && request.method === "POST") return logout(request, env);
+    if (path === "/api/me") {
+      const user = await getSessionUser(request, env);
+      return Response.json({ user });
+    }
+
+    // Create a run (requires a signed-in user; the run is owned by them).
     if (path === "/api/runs" && request.method === "POST") {
+      const user = await getSessionUser(request, env);
+      if (!user) return Response.json({ error: "unauthenticated" }, { status: 401 });
       const { url: target, mode } = (await request.json()) as { url?: string; mode?: string };
       if (!target) return Response.json({ error: "url required" }, { status: 400 });
       const runMode =
@@ -54,8 +76,8 @@ export default {
         : mode === "probe" ? "probe"
         : "scripted";
       const id = crypto.randomUUID();
-      await env.DB.prepare("INSERT INTO runs (id, url, status, mode, created_at) VALUES (?, ?, 'pending', ?, ?)")
-        .bind(id, target, runMode, Date.now())
+      await env.DB.prepare("INSERT INTO runs (id, url, status, mode, user_id, created_at) VALUES (?, ?, 'pending', ?, ?, ?)")
+        .bind(id, target, runMode, user.id, Date.now())
         .run();
       return Response.json({ id }, { status: 201 });
     }

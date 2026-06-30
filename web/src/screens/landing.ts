@@ -4,9 +4,11 @@ import type { App } from "../controller";
 import type { RunState } from "../state";
 import { KNACK_URL, RECENTS } from "../data/knack";
 import { starHero, globe, sendArrowLg } from "../components/icons";
+import { userChip, logout } from "../auth";
 
 export function landing(_state: RunState, app: App): HTMLElement {
   const el = h(`<div class="landing">
+    <div class="landing-user">${userChip()}</div>
     <div class="dust"></div>
     <div class="hero fade">
       ${starHero}
@@ -41,5 +43,6 @@ export function landing(_state: RunState, app: App): HTMLElement {
       app.start(r.startsWith("http") ? r : `https://www.${r}/`);
     }),
   );
+  el.querySelector<HTMLButtonElement>(".userchip")?.addEventListener("click", () => void logout());
   return el;
 }

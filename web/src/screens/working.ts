@@ -6,6 +6,7 @@ import type { App, Screen } from "../controller";
 import type { RunState } from "../state";
 import { topbar, rail, syncRail } from "../components/shell";
 import { bigStar } from "../components/icons";
+import { logout } from "../auth";
 
 export function working(state: RunState, app: App): Screen {
   const el = h(`<div class="app">
@@ -77,6 +78,7 @@ export function wireActions(el: HTMLElement, app: App): void {
     b.addEventListener("click", () => {
       const act = b.getAttribute("data-act")!;
       if (act === "restart") app.restart();
+      else if (act === "logout") void logout();
       else if (act === "cancel") app.cancel();
       else if (act === "snapshot") app.goSnapshot();
       else if (act === "variants") app.goVariants();

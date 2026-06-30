@@ -2,6 +2,7 @@
 import { esc } from "../dom";
 import type { Phase, RailState } from "../state";
 import { starHeader } from "./icons";
+import { userChip } from "../auth";
 
 export interface TopbarAction {
   label: string;
@@ -22,6 +23,7 @@ export function topbar(phase: Phase, actions: TopbarAction[]): string {
     <nav class="ladder" aria-label="progress">${rung("prototype", "prototype")}${rung("deploy", "deploy")}</nav>
     <div class="spacer"></div>
     ${actions.map(btn).join("")}
+    ${userChip()}
   </header>`;
 }
 

@@ -13,6 +13,8 @@ import { variants } from "./screens/variants";
 import { workspace } from "./screens/workspace";
 import { createConversation } from "./components/conversation";
 import { mountToasts } from "./components/toasts";
+import { login } from "./screens/login";
+import { fetchMe } from "./auth";
 import type { ArtifactRef } from "./state";
 import { beginRun, navTo, openVariant, selectVariant, cancelRun, sendMessage, resetRun, reopenRun } from "./driver/liveDriver";
 
@@ -88,10 +90,20 @@ function render(s: RunState): void {
   }
 }
 
-store.subscribe(render);
-store.subscribe((s) => conversation.update(s));
-render(store.get());
-
-// /?run=<id> — reopen a finished run (replays its saved timeline; no new run).
-const reopenId = new URLSearchParams(location.search).get("run");
-if (reopenId) reopenRun(reopenId);
+// Gate the app behind sign-in: fetch the session, show the login screen if none.
+async function boot(): Promise<void> {
+  const user = await fetchMe();
+  if (!user) {
+    root.replaceChildren(login());
+    document.body.classList.remove("ready");
+    requestAnimationFrame(() => document.body.classList.add("ready"));
+    return;
+  }
+  store.subscribe(render);
+  store.subscribe((s) => conversation.update(s));
+  render(store.get());
+  // /?run=<id> — reopen a finished run (replays its saved timeline; no new run).
+  const reopenId = new URLSearchParams(location.search).get("run");
+  if (reopenId) reopenRun(reopenId);
+}
+void boot();
