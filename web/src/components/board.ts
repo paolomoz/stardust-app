@@ -27,6 +27,11 @@ const FUTURE: Record<string, Row[]> = {
     { cat: "MIGRATE", kind: "generate", title: "Migrate content", detail: "page by page", status: "wait" },
     { cat: "LIVE", kind: "validate", title: "Go live", detail: "rollout", status: "wait" },
   ],
+  audit: [
+    { cat: "BASELINE", kind: "analyze", title: "Audit current site", detail: "the live diagnosis", status: "wait" },
+    { cat: "PAGE", kind: "validate", title: "Audit new home page", detail: "deployed · vs baseline", status: "wait" },
+    { cat: "SITE", kind: "validate", title: "Audit new site", detail: "rolled out · vs baseline", status: "wait" },
+  ],
 };
 
 const mark = (s: string) =>
@@ -48,6 +53,7 @@ function cols(s: RunState): Col[] {
     { id: "prototype", label: "Prototype", sub: "other templates", status: "future", rows: FUTURE.prototype },
     { id: "deploy", label: "Deploy", sub: "to AEM", status: "future", rows: FUTURE.deploy },
     { id: "rollout", label: "Rollout", sub: "the whole site", status: "future", rows: FUTURE.rollout },
+    { id: "audit", label: "Audit", sub: "score the result", status: "future", rows: FUTURE.audit },
   ];
 }
 

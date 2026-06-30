@@ -18,7 +18,6 @@ const SUGGESTIONS: Record<ScreenId, Suggestion[]> = {
   landing: [],
   working: [{ label: "See snapshot →", nav: "snapshot" }],
   brand: [{ label: "See directions →", nav: "variants" }],
-  audit: [],
   variants: [
     { label: "Open variant C →", nav: "open-C" },
     { label: "A calmer option", prompt: "a calmer option" },

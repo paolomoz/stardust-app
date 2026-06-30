@@ -16,7 +16,7 @@ export function brand(state: RunState, app: App): Screen {
         <div class="subheader">
           <div class="sub-left">${viewTabs(state)}</div>
           <div class="sub-right">
-            <button class="auditbtn" data-act="view-audit">${search} Run audit</button>
+            <button class="auditbtn">${search} Run audit</button>
             ${openInTab(state.brandReviewUrl)}
           </div>
         </div>

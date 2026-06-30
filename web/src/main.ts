@@ -9,7 +9,6 @@ import type { App, Screen } from "./controller";
 import { landing } from "./screens/landing";
 import { working } from "./screens/working";
 import { brand } from "./screens/brand";
-import { audit } from "./screens/audit";
 import { variants } from "./screens/variants";
 import { workspace } from "./screens/workspace";
 import { createConversation } from "./components/conversation";
@@ -82,28 +81,12 @@ const app: App = {
     if (a.kind === "brand") goView("brand");
     else if (a.variant) app.openVariant(a.variant);
   },
-  // Optional on-demand audit. DEMO: populates a scored diagnosis from the
-  // captured tensions. (Real runs will dispatch an audit agent run — follow-up.)
-  runAudit: () => {
-    goView("audit");
-    store.set({ audit: { status: "running", findings: [] } });
-    setTimeout(() => {
-      const s = store.get();
-      const findings = (s.tensions ?? []).map((t) => ({ n: t.n, text: t.text }));
-      const score = Math.max(40, 100 - findings.length * 8);
-      store.update((st) => {
-        st.audit = { status: "done", score, findings };
-        st.rail = { ...st.rail, score: `${score} / 100` };
-      });
-    }, 1300);
-  },
 };
 
 const factories: Record<ScreenId, (s: RunState, a: App) => Screen | HTMLElement> = {
   landing,
   working,
   brand,
-  audit,
   variants,
   workspace,
 };

@@ -9,7 +9,7 @@ Almost every navigation problem today comes from conflating three distinct
 hierarchies. Name and separate them:
 
 1. **Runs** — *which project* am I in. (start new / pick from "Your runs")
-2. **Phases** — *where in the journey*: **uplift · prototype · deploy · rollout**.
+2. **Phases** — *where in the journey*: **uplift · prototype · deploy · rollout · audit**.
 3. **Views** — *within a phase, what am I looking at*: for uplift →
    working board / brand / directions / a variant.
 
@@ -34,7 +34,7 @@ buttons.
 
 | Surface | Job | Contents |
 |---|---|---|
-| **Header** | Macro nav (level 1 entry → 2) | `stardust` logo → **Runs/home**; `festool.com · redesign` → **project dashboard** (4-column board); the **4-rung phase ladder** (current highlighted, future greyed/disabled); right: the **one primary action** for context + user chip |
+| **Header** | Macro nav (level 1 entry → 2) | `stardust` logo → **Runs/home**; `festool.com · redesign` → **project dashboard** (4-column board); the **5-rung phase ladder** (uplift · prototype · deploy · rollout · audit; current highlighted, future greyed/disabled); right: the **one primary action** for context + user chip |
 | **Right subheader** | Micro view-switcher (level 3) | **persistent segmented tabs** of the phase's views — uplift: **Working · Brand · Directions · Workspace** (each enabled as ready) — plus that view's tools (viewport, Open-in-tab, Publish, Run audit, A/B/C) |
 | **Footer rail** | Ambient status (NOT nav) | palette · what's building · run status · clock — "you are here" |
 | **Below chat input** | Contextual next-steps | suggestion chips (idle) / ETA bar (working) — actions, not nav |
@@ -56,25 +56,19 @@ This **removes the one-way chain and the Back buttons** (tabs + ladder replace
 them), makes the **ladder a real navigator**, and gives the dashboard +
 deploy/rollout phases a natural home as they come online.
 
-## Audit
+## Audit (a top-level phase)
 
-Audit is the **same scorecard run at phase boundaries**; its value is the
-before → after delta. It is **optional and on-demand** (costs time + tokens) — at
-any step — never auto-run.
+Audit is its **own phase**, the last rung after rollout — not a view inside
+uplift. It runs the same scorecard at different points; **3 steps for now**:
 
-- **A separate "Audit" view** (its own tab, distinct from Brand). Per phase:
-  - **Uplift** → audits the current live site (the baseline).
-  - **Deploy** → audits the deployed page (single-page) vs the baseline.
-  - **Rollout** → audits the rolled-out site (full) vs the baseline.
-- **The action lives in the Audit view**: a "Run audit" CTA until run (explains
-  the cost), then the scorecard with a "Re-audit". No global/floating button.
-- **The score is ambient** — a chip in the **footer rail** (`audit 76 / 100`,
-  later `62 → 94`), visible from any view.
-- **Result audits are comparison-first**: the deploy/rollout audit shows the
-  baseline findings with the resolved ones checked off + the score delta.
+1. **Audit current site** — the live baseline (the diagnosis we redesign against).
+2. **Audit new home page** — the deployed page, vs the baseline.
+3. **Audit new site** — the rolled-out site, vs the baseline.
 
-Status: built for the Uplift baseline (view + CTA + scorecard + footer chip).
-Deploy/rollout audits + the real audit agent run are follow-ups.
+It is **greyed/future for now** (we're not running audits yet), shown like the
+other future phases: a greyed rung in the header ladder and a greyed column in
+the Overview board with the 3 steps. When built, the phase's view holds the
+scorecard + before/after delta, run on demand (costs time + tokens).
 
 ## Open design calls (proposed defaults — confirm)
 
