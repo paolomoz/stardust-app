@@ -5,11 +5,35 @@
    pinned task block during the working phase, thinking dots, and the composer. */
 import { h, esc } from "../dom";
 import type { App } from "../controller";
-import type { ArtifactRef, Message, PlanBlock, RunState, TaskItem, VariantId } from "../state";
+import type { ArtifactRef, Message, PlanBlock, RunState, ScreenId, TaskItem, VariantId } from "../state";
 import { store } from "../state";
 import { sendArrow } from "./icons";
 import { taskIcons } from "./icons";
 import { KNACK_SEED_NOTE } from "../data/knack";
+
+/* Next-step suggestions shown under the composer when the agent is idle. A chip
+   either prefills the composer (prompt) or jumps to the next screen (nav). */
+type Suggestion = { label: string; prompt?: string; nav?: "snapshot" | "variants" | "open-C" };
+const SUGGESTIONS: Record<ScreenId, Suggestion[]> = {
+  landing: [],
+  working: [{ label: "See snapshot →", nav: "snapshot" }],
+  brand: [{ label: "See directions →", nav: "variants" }],
+  variants: [
+    { label: "Open variant C →", nav: "open-C" },
+    { label: "A calmer option", prompt: "a calmer option" },
+    { label: "Go bolder than C", prompt: "go bolder than C" },
+  ],
+  workspace: [
+    { label: "Make the hero bolder", prompt: "make the hero bolder" },
+    { label: "Calmer palette", prompt: "use a calmer, more restrained palette" },
+    { label: "More motion", prompt: "add more motion and life to the page" },
+  ],
+};
+
+function suggestionsFor(s: RunState): Suggestion[] {
+  if (s.screen === "working" && !s.snapshotReady) return []; // nothing to do until ready
+  return SUGGESTIONS[s.screen] ?? [];
+}
 
 export function seedChip(hash: string, note: string): string {
   return `<div class="seed"><span class="k">seed</span> <span class="h">${esc(hash)}</span> · ${esc(note)}</div>`;
@@ -105,10 +129,12 @@ export function createConversation(app: App): Conversation {
       <div class="conv-thread"></div>
       <div class="thinking" hidden aria-label="thinking"><span></span><span></span><span></span></div>
     </div>
-    <div class="eta" hidden><div class="eta-bar"><i></i></div><div class="eta-label"></div></div>
     <div class="composer">
       <div class="field"><input type="text" placeholder="tell stardust…" aria-label="message" /><button class="send" aria-label="send">${sendArrow}</button></div>
-      <div class="hint">Working — in reality a few minutes.</div>
+      <div class="convfoot">
+        <div class="eta" hidden><div class="eta-bar"><i></i></div><div class="eta-label"></div></div>
+        <div class="suggest" hidden></div>
+      </div>
     </div>
   </section>`);
 
@@ -122,6 +148,7 @@ export function createConversation(app: App): Conversation {
   const etaWrap = el.querySelector<HTMLElement>(".eta")!;
   const etaFill = el.querySelector<HTMLElement>(".eta-bar i")!;
   const etaLabel = el.querySelector<HTMLElement>(".eta-label")!;
+  const suggestEl = el.querySelector<HTMLElement>(".suggest")!;
 
   // Stick-to-bottom: auto-scroll only while the user is at (near) the bottom.
   let stuck = true;
@@ -140,6 +167,21 @@ export function createConversation(app: App): Conversation {
   sendBtn.addEventListener("click", fire);
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") fire(); });
 
+  // Next-step suggestion chips: nav chips act immediately; prompt chips prefill
+  // the composer (so a paid iteration is never one stray click away).
+  suggestEl.addEventListener("click", (e) => {
+    const chip = (e.target as HTMLElement).closest<HTMLElement>(".schip");
+    if (!chip) return;
+    const nav = chip.getAttribute("data-nav");
+    if (nav === "snapshot") app.goSnapshot();
+    else if (nav === "variants") app.goVariants();
+    else if (nav === "open-C") app.openVariant("C");
+    else {
+      const p = chip.getAttribute("data-prompt");
+      if (p) { input.value = p; input.focus(); }
+    }
+  });
+
   // Artifact cards open on the right.
   threadEl.addEventListener("click", (e) => {
     const card = (e.target as HTMLElement).closest<HTMLElement>(".artifact-card");
@@ -156,20 +198,34 @@ export function createConversation(app: App): Conversation {
   let lastState: RunState | null = null;
   const dur = (sec: number) => (sec >= 90 ? `~${Math.round(sec / 60)} min` : `~${Math.round(sec)}s`);
   const remain = (sec: number) => (sec <= 1 ? "almost there" : sec >= 90 ? `~${Math.round(sec / 60)} min left` : `~${Math.round(sec)}s left`);
+  // Footer = ETA bar while the agent works, else next-step suggestions.
   const paintEta = () => {
     const s = lastState;
-    const show = !!(s?.agentBusy && s.eta);
-    etaWrap.hidden = !show;
-    if (!show || !s?.eta) return;
-    const elapsed = (Date.now() - s.eta.at) / 1000;
-    const frac = Math.min(0.95, elapsed / Math.max(1, s.eta.seconds));
-    etaFill.style.width = `${Math.round(frac * 100)}%`;
-    etaLabel.textContent = `${remain(s.eta.seconds - elapsed)} · est. ${dur(s.eta.seconds)}`;
+    const showEta = !!(s?.agentBusy && s.eta);
+    etaWrap.hidden = !showEta;
+    suggestEl.hidden = showEta || !s || suggestionsFor(s).length === 0;
+    if (showEta && s?.eta) {
+      const elapsed = (Date.now() - s.eta.at) / 1000;
+      const frac = Math.min(0.95, elapsed / Math.max(1, s.eta.seconds));
+      etaFill.style.width = `${Math.round(frac * 100)}%`;
+      etaLabel.textContent = `${remain(s.eta.seconds - elapsed)} · est. ${dur(s.eta.seconds)}`;
+    }
   };
   setInterval(paintEta, 500);
 
+  const renderSuggestions = (s: RunState) => {
+    const list = suggestionsFor(s);
+    suggestEl.innerHTML = list
+      .map((x) => `<button class="schip"${x.nav ? ` data-nav="${x.nav}"` : ` data-prompt="${esc(x.prompt ?? "")}"`}>${esc(x.label)}</button>`)
+      .join("");
+  };
+
+  let suggestKey = "";
   const update = (s: RunState) => {
     lastState = s;
+    // re-render chips only when the relevant state changes (avoids clobbering)
+    const key = `${s.screen}:${s.snapshotReady}`;
+    if (key !== suggestKey) { renderSuggestions(s); suggestKey = key; }
     paintEta();
     projEl.textContent = s.projectName || "—";
 
