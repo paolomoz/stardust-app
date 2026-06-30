@@ -24,6 +24,8 @@ export interface App {
   /** Client-side view navigation (header ladder / subheader tabs). Sets the
    *  screen instantly, locks it against DO screen events, and syncs the URL. */
   goView(screen: ScreenId): void;
+  /** Enter the uplift phase from the header rung → its furthest-ready view. */
+  goUplift(): void;
   /** Reset everything to the landing screen. */
   restart(): void;
   /** Stop an in-flight run (Stop button on the working screen). */

@@ -69,6 +69,13 @@ const app: App = {
   openVariant: (id) => { lockView(); store.set({ activeVariant: id, screen: "workspace" }); selectVariant(id); syncUrl(); },
   goto: (screen) => goView(screen),
   goView,
+  // Enter the uplift phase (its views) from the header rung — land on the
+  // furthest-ready output (workspace › directions › brand).
+  goUplift: () => {
+    const s = store.get();
+    if (s.variants.length) goView("workspace");
+    else goView("brand");
+  },
   restart: () => { resetRun(); history.replaceState(null, "", location.pathname); },
   cancel: () => cancelRun(),
   setVariant: (id: VariantId) => {

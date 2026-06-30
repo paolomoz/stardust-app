@@ -29,7 +29,8 @@ export function topbar(state: RunState, actions: TopbarAction[]): string {
   const rung = (p: { id: string; label: string }) => {
     const active = p.id === "uplift"; // current phase (v1 builds only uplift)
     const cls = active ? "rung active" : "rung future";
-    return `<button class="${cls}"${active ? ` data-act="dashboard"` : " disabled"}><span class="pip"></span><span class="lbl">${esc(p.label)}</span></button>`;
+    // The active rung enters its phase's views; future rungs are inert.
+    return `<button class="${cls}"${active ? ` data-act="phase-uplift"` : " disabled"}><span class="pip"></span><span class="lbl">${esc(p.label)}</span></button>`;
   };
   const btn = (a: TopbarAction) =>
     `<button class="btn ${a.kind === "primary" ? "btn-primary" : "btn-quiet"}"${a.id ? ` id="${a.id}"` : ""}${a.to ? ` data-act="${a.to}"` : ""}${a.disabled ? " disabled" : ""}>${esc(a.label)}${a.arrow ? ' <span class="arr">→</span>' : ""}</button>`;
