@@ -22,7 +22,7 @@ export function working(state: RunState, app: App): Screen {
       <section class="conv conv-mount" aria-label="conversation"></section>
       <section class="panel" aria-label="overview">
         <div class="subheader">
-          <div class="sub-left">${viewTabs(state)}</div>
+          <div class="sub-left"><span class="eyebrow ovw">overview</span><span class="segdiv"></span>${viewTabs(state)}</div>
           <div class="sub-right" id="subRight">${subRight(state)}</div>
         </div>
         <div class="boardwrap" id="boardwrap">${board(state)}</div>
@@ -40,7 +40,7 @@ export function working(state: RunState, app: App): Screen {
     const sr = el.querySelector<HTMLElement>("#subRight");
     if (sr) sr.innerHTML = subRight(s);
     const tabs = el.querySelector<HTMLElement>(".sub-left");
-    if (tabs) tabs.innerHTML = viewTabs(s);
+    if (tabs) tabs.innerHTML = `<span class="eyebrow ovw">overview</span><span class="segdiv"></span>${viewTabs(s)}`;
     const stop = el.querySelector<HTMLButtonElement>("#stopBtn");
     if (stop && s.error) stop.disabled = true;
   };

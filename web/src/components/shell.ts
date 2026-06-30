@@ -45,18 +45,19 @@ export function topbar(state: RunState, actions: TopbarAction[]): string {
   </header>`;
 }
 
-/** The within-phase view switcher (right-panel subheader, sub-left). Tabs enable
- *  as their data becomes ready; the active tab tracks state.screen. */
+/** The within-phase view switcher (right-panel subheader, sub-left). Overview is
+ *  NOT here — it's the project dashboard, reached from the header (project link /
+ *  the uplift rung). These are the uplift phase's output views; tabs enable as
+ *  their data lands; the active tab tracks state.screen. */
 export function viewTabs(state: RunState): string {
   const ready: Record<string, boolean> = {
-    working: true,
     brand: !!state.brandReviewUrl,
     variants: state.variants.length > 0,
     workspace: state.variants.length > 0,
   };
   const tab = (id: ScreenId, label: string) =>
     `<button class="${state.screen === id ? "on" : ""}" data-act="view-${id}"${ready[id] ? "" : " disabled"}>${esc(label)}</button>`;
-  return `<div class="seg tabs" role="group" aria-label="views">${tab("working", "Overview")}${tab("brand", "Brand")}${tab("variants", "Directions")}${tab("workspace", "Workspace")}</div>`;
+  return `<div class="seg tabs" role="group" aria-label="views">${tab("brand", "Brand")}${tab("variants", "Directions")}${tab("workspace", "Workspace")}</div>`;
 }
 
 export function rail(r: RailState): string {
