@@ -21,9 +21,9 @@ import {
   knackTasks,
 } from "../shared/knack-content";
 
-// Demo artifacts are seeded into R2 under this fixed prefix (see scripts/seed-r2.sh),
-// independent of the random per-run id.
-const ART = "/api/artifacts/knack-demo";
+// Demo artifacts are bundled as static assets (web/public/knack-demo/**), served
+// directly (no auth, no R2) so the offline demo previews actually render.
+const ART = "/knack-demo";
 // brand-review lives under review/ (its own assets/) to avoid colliding with the
 // variants' assets/ when merged into one R2 prefix. See scripts/seed-r2.sh.
 const brandReviewUrl = `${ART}/review/brand-review.html`;
