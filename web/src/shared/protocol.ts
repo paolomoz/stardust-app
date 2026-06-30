@@ -38,6 +38,7 @@ export type ServerEvent =
 export type ClientCommand =
   | { t: "nav"; to: ScreenId }          // back/forward buttons + "see snapshot/directions"
   | { t: "open"; variant: VariantId }   // open a variant into the workspace
+  | { t: "select"; variant: VariantId } // toolbar A/B/C switch — keep the server's active target in sync (no UI re-emit)
   | { t: "send"; screen: ScreenId; text: string }; // composer
 
 export const isServerEvent = (v: unknown): v is ServerEvent =>

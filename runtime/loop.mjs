@@ -6,7 +6,10 @@
    =========================================================================== */
 import { LOCAL_TOOLS } from "./tools.mjs";
 
-export async function runLoop({ provider, tools, toolSpecs, system, task, onNarration, onTool, onUsage, maxSteps = 240, maxNudges = 3 }) {
+export async function runLoop({ provider, tools, toolSpecs, system, task, onNarration, onTool, onUsage, maxSteps = 240, maxNudges = 3, doneHint, isDone }) {
+  const nudge = doneHint || "Continue the uplift. When everything is finished and uploaded, call emit_milestone with phase \"done\".";
+  // Terminal milestone: full run ends on phase "done"; an iteration ends on iterate.done.
+  const terminal = isDone || ((name, args) => name === "emit_milestone" && (args?.phase === "done" || (args?.phase === "iterate" && args?.event === "done")));
   const messages = [
     { role: "system", content: system },
     { role: "user", content: task },
@@ -32,7 +35,7 @@ export async function runLoop({ provider, tools, toolSpecs, system, task, onNarr
       // The agent ended a turn without acting. Nudge it back to work a few times
       // before giving up — the task is autonomous and ends via the done milestone.
       if (nudges++ < maxNudges) {
-        messages.push({ role: "user", content: "Continue the uplift. When everything is finished and uploaded, call emit_milestone with phase \"done\"." });
+        messages.push({ role: "user", content: nudge });
         continue;
       }
       break;
@@ -48,7 +51,7 @@ export async function runLoop({ provider, tools, toolSpecs, system, task, onNarr
       const result = parseErr
         ? `[error] your ${name} arguments were not valid JSON — they were likely truncated because the output got too long. For a large file, write a first chunk with write_file then add the rest with append_file (or use run_bash with a heredoc).`
         : fn ? await fn(args) : `[error] unknown tool ${name}`;
-      if (name === "emit_milestone" && args?.phase === "done") done = true;
+      if (!parseErr && terminal(name, args)) done = true;
       messages.push({ role: "tool", tool_call_id: c.id, content: typeof result === "string" ? result : JSON.stringify(result) });
     }
   }

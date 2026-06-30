@@ -39,6 +39,7 @@ export function workspace(state: RunState, app: App): Screen {
 
   const frame = el.querySelector<HTMLIFrameElement>("#artframe")!;
   frame.dataset.variant = cur.id;
+  frame.dataset.src = cur.src;
 
   wireActions(el, app);
   wireComposer(el, app, "workspace");
@@ -55,11 +56,13 @@ export function workspace(state: RunState, app: App): Screen {
     // conversation
     const t = el.querySelector(".conv-thread");
     if (t) t.outerHTML = thread(s.messages, KNACK_SEED_NOTE);
-    // variant switch — only reload the iframe when the variant actually changed
+    // reload the iframe when the variant changes OR its src does (in-place
+    // re-render after an iteration bumps src with a ?v= cache-buster)
     const card = activeCard(s);
-    if (frame.dataset.variant !== card.id) {
+    if (frame.dataset.variant !== card.id || frame.dataset.src !== card.src) {
       frame.src = card.src;
       frame.dataset.variant = card.id;
+      frame.dataset.src = card.src;
       const open = el.querySelector<HTMLAnchorElement>(".sub-right .open");
       if (open) open.href = card.src;
     }

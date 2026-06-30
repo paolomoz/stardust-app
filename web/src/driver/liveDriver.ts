@@ -128,6 +128,7 @@ function openSocket(id: string): void {
 
 export const navTo = (to: ScreenId) => command({ t: "nav", to });
 export const openVariant = (variant: VariantId) => command({ t: "open", variant });
+export const selectVariant = (variant: VariantId) => command({ t: "select", variant });
 export const sendMessage = (screen: ScreenId, text: string) => command({ t: "send", screen, text });
 
 export function resetRun(): void {

@@ -13,6 +13,10 @@
      bedrock:  BEDROCK_API_KEY [, BEDROCK_MODEL, BEDROCK_REGION]
      OUTPUTS_DIR=/mnt/session/outputs, WORKDIR=/workspace
      TASK (optional) — override the uplift instruction (used by smoke tests)
+     ITERATE=1 — iteration mode: apply one change to an existing variant
+       INSTRUCTION (the director's change), VARIANT_ID (A|B|C),
+       VARIANT_FILE (e.g. home-C-cinematic.html). Reuses the persisted
+       /workspace/stardust tree + /mnt/session/outputs from the original run.
    =========================================================================== */
 import { readFile } from "node:fs/promises";
 import { makeProvider } from "./provider.mjs";
@@ -40,25 +44,49 @@ const ingest = makeIngest({ base, runId, token, outputsDir });
 const tools = makeTools({ workdir, outputsDir, ingest });
 const system = await readFile(new URL("./system-prompt.md", import.meta.url), "utf8");
 
-const task =
+const iterate = env.ITERATE === "1";
+const variantId = env.VARIANT_ID || "C";
+const variantFile = env.VARIANT_FILE || "home-C-cinematic.html";
+const instruction = env.INSTRUCTION || "";
+
+const upliftTask =
   env.TASK ||
   `Redesign ${url} for presales. Run stardust:uplift to completion, non-interactively. ` +
     `The skills are baked at /workspace/skills; work in /workspace and write deliverables to ${outputsDir}. ` +
     `Emit each milestone (emit_milestone) the instant it happens and upload each deliverable (upload_artifact) as soon as it exists.`;
 
+const iterateTask =
+  `ITERATION, not a full run. A redesign already exists in this sandbox: the persisted workspace is at /workspace/stardust and the deliverables are in ${outputsDir}. ` +
+  `The director wants ONE change to variant ${variantId} (the file ${outputsDir}/${variantFile}): "${instruction}". ` +
+  `Apply it surgically — read the existing ${variantFile}, make exactly the requested change while keeping the brand palette, type, and one canonical CTA intact, and change nothing else. ` +
+  `Do this through impeccable, not by hand: pick the matching impeccable command for the request (e.g. colorize, typeset, polish, motion, or a targeted craft edit), read its reference/<command>.md, and follow that flow. ` +
+  `Do NOT re-run extract or direct, and do NOT touch the other variants. ` +
+  `Then inspect the result in the browser (Playwright screenshot) to confirm it renders and the change landed, write the updated ${variantFile} back to ${outputsDir} (plus any new assets), and upload_artifact each changed path. ` +
+  `Finally call emit_milestone(phase="iterate", event="done", data={"variant":"${variantId}","file":"${variantFile}"}) — that is the LAST thing you do.`;
+
+const task = iterate ? iterateTask : upliftTask;
+const iterateHint = `Finish the requested change to variant ${variantId}, upload the updated ${variantFile}, then call emit_milestone with phase "iterate" and event "done".`;
+
 try {
-  await ingest.event({ type: "narration", text: `${provider.name} ${provider.model} — starting${url ? ` uplift of ${url}` : ""}.` });
+  await ingest.event({ type: "narration", text: iterate
+    ? `${provider.name} ${provider.model} — re-rendering variant ${variantId}: ${instruction}`
+    : `${provider.name} ${provider.model} — starting${url ? ` uplift of ${url}` : ""}.` });
   const { usage, done } = await runLoop({
     provider,
     tools,
     toolSpecs: TOOL_SPECS,
     system,
     task,
+    ...(iterate ? { doneHint: iterateHint } : {}),
     onNarration: (t) => ingest.event({ type: "narration", text: t }).catch(() => {}),
     onTool: (name) => ingest.event({ type: "tool", name }).catch(() => {}),
   });
-  if (!done) await ingest.event({ phase: "done" }).catch(() => {});
-  console.log(`runtime finished: done=${done} calls=${usage.calls} tokens=${usage.total}`);
+  if (!done) {
+    await ingest.event(iterate
+      ? { phase: "iterate", event: "done", variant: variantId, file: variantFile }
+      : { phase: "done" }).catch(() => {});
+  }
+  console.log(`runtime finished: mode=${iterate ? "iterate" : "uplift"} done=${done} calls=${usage.calls} tokens=${usage.total}`);
 } catch (e) {
   console.error("runtime error:", e?.message ?? e);
   await ingest.event({ type: "narration", text: `Run error: ${e?.message ?? e}` }).catch(() => {});

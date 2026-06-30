@@ -69,6 +69,10 @@ export class RunSession extends DurableObject<Env> {
   private realTensions: { n: string; text: string }[] = [];
   private realBrand?: { brandReviewUrl: string; tensions: { n: string; text: string }[] };
   private realVariants?: { sharedFixes: string[]; variants: VariantCard[] };
+  // M6: workspace iteration. activeVariant is the target a "tell me a change"
+  // applies to; iterVersion cache-busts the iframe src on each re-render.
+  private activeVariant?: VariantId;
+  private iterVersion = 0;
 
   async fetch(request: Request): Promise<Response> {
     const runId = new URL(request.url).pathname.match(/^\/api\/runs\/([^/]+)\/ws$/)?.[1] ?? "";
@@ -428,7 +432,7 @@ export class RunSession extends DurableObject<Env> {
    *  tasks.init so labels/details reflect the real run, not canned demo copy. */
   async ingestEvent(runId: string, ev: unknown): Promise<void> {
     if (!this.runId) this.runId = runId;
-    const e = (ev ?? {}) as { type?: string; text?: string; name?: string; phase?: string; event?: string; seed?: string; items?: { n: string; text: string }[]; brandReview?: string; sharedFixes?: string[]; variants?: unknown[]; variant?: string };
+    const e = (ev ?? {}) as { type?: string; text?: string; name?: string; phase?: string; event?: string; seed?: string; items?: { n: string; text: string }[]; brandReview?: string; sharedFixes?: string[]; variants?: unknown[]; variant?: string; file?: string };
 
     // Narration / tool activity from the open-loop runtime → conversation thread.
     if (e.type === "narration" && e.text) {
@@ -437,6 +441,12 @@ export class RunSession extends DurableObject<Env> {
     }
     if (e.type === "tool") {
       await this.emit({ t: "message.append", message: { id: `t-${this.seq}`, role: "agent", lead: `› ${e.name ?? "tool"}` } });
+      return;
+    }
+
+    // M6: an iteration finished re-rendering a variant → hot-swap the preview.
+    if (e.phase === "iterate") {
+      await this.hotSwapVariant(e.variant, e.file);
       return;
     }
     const set = (id: string, status?: TaskItem["status"], detail?: string) => {
@@ -591,6 +601,7 @@ export class RunSession extends DurableObject<Env> {
     this.clearTimers();
     const cards = this.realVariants?.variants?.length ? this.realVariants.variants : variants;
     const card = cards.find((v) => v.id === id) ?? cards[cards.length - 1];
+    this.activeVariant = card.id;
     const messages: Message[] = [
       {
         id: "ws-lead",
@@ -614,36 +625,76 @@ export class RunSession extends DurableObject<Env> {
       return;
     }
     if (cmd.t === "open") return this.toWorkspace(cmd.variant);
+    if (cmd.t === "select") { this.activeVariant = cmd.variant; return; }
     if (cmd.t === "send") return this.onSend(cmd.screen, cmd.text);
   }
 
   private async onSend(screen: ScreenId, text: string): Promise<void> {
     await this.emit({ t: "message.append", message: { id: `u-${this.seq}`, role: "user", text } });
-    if (screen === "workspace") {
-      this.schedule(650, () =>
-        this.emit({
-          t: "message.append",
-          message: {
-            id: `a-${this.seq}`,
-            role: "agent",
-            plan: {
-              tag: "plan",
-              steps: [
-                { n: "01", text: "Map the request to the prototype and re-render." },
-                { n: "02", text: "Keep the palette and one canonical CTA." },
-              ],
-              status: "Applied · re-rendered",
-              acts: ["Undo", "Keep"],
-            },
-            seed: KNACK_SEED,
-          },
-        }),
-      );
-    } else {
+    if (screen === "workspace") return this.iterate(text);
+    this.schedule(550, () =>
+      this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "On it — folding that into the work." } }),
+    );
+  }
+
+  /** M6: a "tell me a change" in the workspace re-renders the active variant.
+   *  We spawn an iteration container (via the runner) that re-opens the run's
+   *  persisted workspace, applies the change through impeccable, and re-uploads
+   *  the variant; ingestEvent(phase:"iterate") then hot-swaps the preview. */
+  private async iterate(text: string): Promise<void> {
+    const cards = this.realVariants?.variants ?? [];
+    const card = cards.find((v) => v.id === this.activeVariant) ?? cards[cards.length - 1];
+    // No real variants (scripted demo) → keep a light acknowledgement.
+    if (!card) {
       this.schedule(550, () =>
-        this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "On it — folding that into the work." } }),
+        this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "On it — folding that into the work.", seed: KNACK_SEED } }),
       );
+      return;
     }
+
+    const file = (card.src.split("?")[0].split("/").pop() ?? "").trim();
+    const row = await this.env.DB.prepare("SELECT mode, ingest_token AS token FROM runs WHERE id = ?")
+      .bind(this.runId)
+      .first<{ mode: string | null; token: string | null }>();
+    const backend = row?.mode === "cerebras" ? "cerebras" : "bedrock";
+    const token = row?.token;
+    if (!token) {
+      await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "I can't re-render this run — its runtime token is missing. Try a fresh run." } });
+      return;
+    }
+    const runner = this.env.RUNNER_URL ?? "http://localhost:8790/run";
+
+    await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `On it — re-rendering variant <b>${card.id}</b>: ${text}` } });
+    await this.emit({ t: "rail", rail: rail({ signature: "watch it build", variant: card.segLabel, busy: true, clock: `⏱ re-rendering ${card.id}` }) });
+
+    try {
+      const res = await fetch(runner, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ runId: this.runId, token, backend, mode: "iterate", instruction: text, variantId: card.id, variantFile: file }),
+      });
+      if (!res.ok) throw new Error(`runner ${res.status}`);
+    } catch (e) {
+      await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Couldn't start the re-render (${(e as Error).message}).` } });
+      await this.emit({ t: "rail", rail: rail({ signature: "watch it build", variant: card.segLabel, clock: "⏱ ready to iterate" }) });
+    }
+  }
+
+  /** Re-render finished — bump the active variant's src to force an iframe
+   *  reload (R2 serves with a 5-min cache; a ?v= buster defeats it). */
+  private async hotSwapVariant(id?: string, file?: string): Promise<void> {
+    if (!this.realVariants) return;
+    this.iterVersion += 1;
+    const variants = this.realVariants.variants.map((c) => {
+      const match = (id && c.id === id) || (file && c.src.includes(file));
+      return match ? { ...c, src: `${c.src.split("?")[0]}?v=${this.iterVersion}` } : c;
+    });
+    this.realVariants = { ...this.realVariants, variants };
+    const active = (id as VariantId | undefined) ?? this.activeVariant ?? variants[variants.length - 1].id;
+    const card = variants.find((c) => c.id === active) ?? variants[variants.length - 1];
+    await this.emit({ t: "panel.workspace", activeVariant: active, variants });
+    await this.emit({ t: "message.append", message: { id: `it-${this.seq}`, role: "agent", lead: `Done — re-rendered variant <b>${active}</b>. Switch variants or ask for another change.` } });
+    await this.emit({ t: "rail", rail: rail({ signature: "watch it build", variant: card.segLabel, clock: "⏱ re-rendered" }) });
   }
 }
 

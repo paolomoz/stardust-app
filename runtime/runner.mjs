@@ -50,11 +50,17 @@ function backendEnv(backend) {
   };
 }
 
-function startContainer({ runId, url, token, backend }) {
+function startContainer({ runId, url, token, backend, mode, instruction, variantId, variantFile }) {
   const out = `${OUTPUTS_DIR}/${runId}`;
   const work = `${OUTPUTS_DIR}/${runId}-workspace`;
   mkdirSync(out, { recursive: true });
   mkdirSync(work, { recursive: true });
+
+  // Iteration reuses the original run's persisted workspace + deliverables.
+  const isIterate = mode === "iterate";
+  const iterateEnv = isIterate
+    ? { ITERATE: "1", INSTRUCTION: instruction || "", VARIANT_ID: variantId || "C", VARIANT_FILE: variantFile || "home-C-cinematic.html" }
+    : {};
 
   const be = backendEnv(backend);
   const { _label, ...envVars } = be;
@@ -65,6 +71,7 @@ function startContainer({ runId, url, token, backend }) {
     INGEST_BASE,
     OUTPUTS_DIR: "/mnt/session/outputs",
     WORKDIR: "/workspace",
+    ...iterateEnv,
     ...envVars,
   }).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
 
@@ -78,7 +85,7 @@ function startContainer({ runId, url, token, backend }) {
   ];
   const child = spawn("docker", args, { stdio: "inherit", detached: true });
   child.unref();
-  console.log(`[runner] spawned [${_label}] container for run ${runId} (${url})`);
+  console.log(`[runner] spawned [${_label}] ${isIterate ? `iterate(${variantId}: ${instruction})` : "container"} for run ${runId} (${url})`);
 }
 
 createServer((req, res) => {
@@ -90,9 +97,9 @@ createServer((req, res) => {
   req.on("data", (c) => (body += c));
   req.on("end", () => {
     try {
-      const { runId, url, token, backend } = JSON.parse(body || "{}");
+      const { runId, url, token, backend, mode, instruction, variantId, variantFile } = JSON.parse(body || "{}");
       if (!runId || !token) throw new Error("runId and token required");
-      startContainer({ runId, url: url || "", token, backend: backend || "bedrock" });
+      startContainer({ runId, url: url || "", token, backend: backend || "bedrock", mode, instruction, variantId, variantFile });
       res.writeHead(202, { "content-type": "application/json" }).end(JSON.stringify({ ok: true }));
     } catch (e) {
       res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: String(e.message || e) }));
