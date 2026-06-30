@@ -152,9 +152,16 @@ export class RunSession extends DurableObject<Env> {
         this.sockets.delete(ws);
       }
     }
-    await this.env.DB.prepare("INSERT INTO run_events (run_id, seq, payload, ts) VALUES (?, ?, ?, ?)")
-      .bind(this.runId, this.seq++, payload, Date.now())
+    // Compute the next seq atomically from the table rather than trusting an
+    // in-memory counter — the DO can emit on the ingest path (cold start),
+    // across reconnects, or after a reopen, where this.seq would be stale and
+    // collide on the (run_id, seq) primary key.
+    await this.env.DB.prepare(
+      "INSERT INTO run_events (run_id, seq, payload, ts) SELECT ?, COALESCE((SELECT MAX(seq) + 1 FROM run_events WHERE run_id = ?), 0), ?, ?",
+    )
+      .bind(this.runId, this.runId, payload, Date.now())
       .run();
+    this.seq++; // keep in-memory counter advancing for message-id uniqueness
   }
 
   private schedule(ms: number, fn: () => Promise<void> | void): void {
