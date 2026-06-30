@@ -125,3 +125,59 @@ same ingest contract.
   storage as artifacts accumulate.
 - Each Bedrock run is real spend (~$50-80); consider a per-user run cap before
   opening signups widely.
+
+---
+
+## Pending production deploy — local → prod (as of 2026-06-30)
+
+Prod baseline = commit `f5e0bd1` (eviction fix, version `27bf86d1`). Everything
+since is local-only. This is a **worker-bundle + static-assets** deploy:
+**no image rebuild, no D1 migration, no new secrets.**
+
+### 1. MUST remove before deploy — the dev-login backdoor
+- `web/src/worker/auth.ts` → delete `devLogin()`.
+- `web/src/worker/index.ts` → delete the import + the `/api/_dev/login` route.
+- (Localhost-gated → inert in prod, but don't ship a backdoor.)
+
+### 2. Critical fix that MUST land (shared DO code)
+- `runSession.ts`: `brand_ready` emits `panel.brand`, `variants_ready` emits
+  `panel.variants`, and the WS handler pushes `panel.*` to **every** connecting
+  socket. Without it the new client (client-owned nav, no nav commands) shows
+  empty galleries in prod — the exact bug fixed locally on the wheelercat run.
+- **Deploy client + worker together** (a single `wrangler deploy` does both
+  atomically). The new client needs the new worker; never deploy partially.
+
+### 3. What's in the delta (by area)
+- **Worker** (`web/src/worker/`): `runSession.ts` (panel.* fix + demo
+  eager-stream + ART→`/knack-demo`), `index.ts` + `auth.ts` (dev-login — REMOVE).
+- **Client** (`web/src/`): the nav redesign — shell, screens (working/brand/
+  variants/workspace), main, board, conversation, controller, liveDriver, state,
+  styles.
+- **Assets** (`web/public/knack-demo/**`, ~18 MB): bundled demo previews; also
+  fixes prod `?mode=demo` (was 403/empty).
+- **Docs** (`IMPROVEMENTS.md`, `NAVIGATION.md`, `.gitignore`): repo-only.
+
+### 4. Deploy command
+```
+cd web
+CLOUDFLARE_ENV=production npx vite build
+CLOUDFLARE_ENV=production npx wrangler deploy   # reuses cached image (fast)
+```
+
+### 5. Prod data — no fix needed
+- Eviction fix already in prod; runs since (festool) captured `result_json`.
+- After this deploy, reopening existing prod runs (festool, virginatlantic)
+  populates gallery/workspace from `result_json` (the panel push covers runs
+  whose events predate the fix). virginatlantic's manual backfill stands.
+
+### 6. Post-deploy verification
+- `/api/me` 200 · `/api/_debug` 404 · `/api/_dev/login` 404 (after removal).
+- OAuth google/github redirect.
+- Reopen festool → new nav: Overview board; uplift rung → Brand/Directions/
+  Workspace populate; clicking a variant opens the prototype.
+- `?mode=demo` → previews render.
+- (Optional, $) one small real run end-to-end.
+
+### 7. Already-handled prod specifics (verify, don't re-fix)
+- Containers get model keys via the job body (`modelEnv`) — deployed + working.
+- Idle container instances cost — tracked in IMPROVEMENTS.md (separate).
