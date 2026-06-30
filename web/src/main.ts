@@ -12,6 +12,7 @@ import { brand } from "./screens/brand";
 import { variants } from "./screens/variants";
 import { workspace } from "./screens/workspace";
 import { createConversation } from "./components/conversation";
+import { mountToasts } from "./components/toasts";
 import type { ArtifactRef } from "./state";
 import { beginRun, navTo, openVariant, selectVariant, cancelRun, sendMessage, resetRun, reopenRun } from "./driver/liveDriver";
 
@@ -63,6 +64,7 @@ let current: Screen | null = null;
 // One persistent conversation panel, re-parented into each in-app screen so the
 // chat (content + scroll) is identical across working/brand/variants/workspace.
 const conversation = createConversation(app);
+mountToasts(app);
 
 function asScreen(r: Screen | HTMLElement): Screen {
   return r instanceof HTMLElement ? { el: r } : r;

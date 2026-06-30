@@ -90,6 +90,8 @@ export interface RunState {
   error?: string;             // set when a run fails/cancels — working screen shows it
   agentBusy?: boolean;        // agent is working → show thinking dots in the chat
   eta?: { seconds: number; at: number }; // ETA bar: estimate + client receipt time
+  live?: boolean;             // a fresh run is streaming (not a reopen) → enable toasts
+  lastArtifact?: { ref: ArtifactRef; at: number }; // newest artifact → "ready" toast
 }
 
 type Listener = (s: RunState) => void;
@@ -116,6 +118,8 @@ function initial(): RunState {
     error: undefined,
     agentBusy: false,
     eta: undefined,
+    live: false,
+    lastArtifact: undefined,
   };
 }
 

@@ -54,7 +54,9 @@ function apply(ev: ServerEvent): void {
       break;
     case "message.append":
       store.update((s) => {
-        if (!s.messages.some((m) => m.id === ev.message.id)) s.messages = [...s.messages, ev.message];
+        if (s.messages.some((m) => m.id === ev.message.id)) return; // idempotent by id
+        s.messages = [...s.messages, ev.message];
+        if (ev.message.artifact) s.lastArtifact = { ref: ev.message.artifact, at: Date.now() };
       });
       break;
     case "panel.brand":
@@ -113,6 +115,7 @@ export async function beginRun(url: string, mode: "scripted" | "agent" | "probe"
     return;
   }
   const { id } = (await res.json()) as { id: string };
+  store.set({ live: true }); // a fresh run → artifact "ready" toasts are wanted
   openSocket(id);
 }
 

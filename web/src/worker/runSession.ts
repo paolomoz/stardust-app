@@ -264,6 +264,9 @@ export class RunSession extends DurableObject<Env> {
     this.schedule(2800, () => step("extract", "analyze", 58));
     this.schedule(3800, () => step("analyze", "generate", 74));
     this.schedule(4900, () => step("generate", "validate", 90));
+    // Artifact cards (+ "ready" toasts) — mirrors the real run's brand/variant signals.
+    this.schedule(3200, () => this.emit({ t: "message.append", message: { id: "art-brand", role: "agent", artifact: { kind: "brand", label: "Brand review" } } }));
+    this.schedule(5200, () => this.emit({ t: "message.append", message: { id: "art-C", role: "agent", artifact: { kind: "variant", variant: "C", label: "Variant C — cinematic" } } }));
     this.schedule(6000, async () => {
       await this.emit({ t: "task", id: "validate", status: "done" });
       await this.emit({ t: "progress", value: 100 });
