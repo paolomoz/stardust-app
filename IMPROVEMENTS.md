@@ -110,6 +110,16 @@ columns are "future / greyed."
   `_ctx/` never expire today, storage grows unbounded. Cheaper-tier model for
   low-stakes iterations.
 
+## Known bugs
+
+- **Overview Uplift column empty on reopen ("IN PROGRESS").** Same DO-eviction
+  family as the result_json fix, but `this.tasks` isn't rehydrated: a cold DO
+  re-emits an empty `tasks.init` late in the run, which wins on replay → empty
+  column + false "in progress". Deliverables are unaffected. Fix: don't emit an
+  empty `tasks.init` (guard the variant_done/done emits), rehydrate `this.tasks`
+  on a cold DO, and/or derive the column's done-state from `result_json` on
+  reopen. Cosmetic; tracked for the next reliability pass.
+
 ## Reliability / Scale (future)
 - **Bedrock quota** increase before high concurrency (the real 100-parallel cap;
   pairs with parallel variant builds, which triple per-run concurrency).
