@@ -6,7 +6,7 @@
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/auth/*"]
+    "run_worker_first": ["/api/*", "/auth/*", "/p/*"]
   },
   "durable_objects": {
     "bindings": [{ "name": "RUN", "class_name": "RunSession" }]

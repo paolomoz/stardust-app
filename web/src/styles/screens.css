@@ -77,6 +77,14 @@
 .errcard h2 { font: 600 20px/1.2 var(--display); letter-spacing: -0.02em; color: var(--fg); margin: 0; }
 .errcard .errmsg { font-size: 13.5px; line-height: 1.5; color: var(--fg-dim); max-width: 360px; }
 .errcard .btn { margin-top: 6px; }
+
+/* Publish controls in the workspace subheader. */
+.pubctl { display: inline-flex; align-items: center; gap: 8px; }
+.pubbtn { font: 600 12.5px/1 var(--text); padding: 6px 11px; border-radius: 8px; border: 1px solid var(--hairline-soft); background: var(--surface); color: var(--fg-dim); cursor: pointer; transition: color .15s var(--ease), border-color .15s var(--ease); }
+.pubbtn:hover { color: var(--fg); border-color: rgba(201,130,45,0.55); }
+.pubbtn.on { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, transparent); }
+.publink { font: 500 12px/1 var(--mono); color: var(--fg-faint); cursor: pointer; }
+.publink:hover { color: var(--fg-dim); }
 .skel { width: 420px; max-width: 90%; margin-top: 28px; display: grid; grid-template-columns: 1.2fr 1fr; gap: 10px; }
 .sk { border-radius: 10px; background: linear-gradient(100deg, var(--sunken) 30%, var(--surface) 50%, var(--sunken) 70%); background-size: 200% 100%; animation: shimmer 1.5s linear infinite; }
 .sk.big { grid-row: span 2; height: 120px; }

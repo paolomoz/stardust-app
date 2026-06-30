@@ -35,6 +35,10 @@ export interface Env {
 const WS_PATH = /^\/api\/runs\/([^/]+)\/ws$/;
 const INGEST_EVENT = /^\/api\/ingest\/([^/]+)\/event$/;
 const INGEST_ARTIFACT = /^\/api\/ingest\/([^/]+)\/artifact\/(.+)$/;
+const PUBLISH = /^\/api\/runs\/([^/]+)\/publish$/;
+const UNPUBLISH = /^\/api\/runs\/([^/]+)\/unpublish$/;
+const PUBLISHED = /^\/api\/runs\/([^/]+)\/published$/;
+const PUBLIC = /^\/p\/([^/]+)$/;
 
 /** Owner gate for viewing a run / its artifacts. Legacy runs with no owner
  *  (created before auth) stay viewable so old test runs keep working. Returns
@@ -46,6 +50,27 @@ async function canViewRun(env: Env, runId: string, request: Request): Promise<bo
   if (!row.user_id) return true; // legacy / unowned
   const user = await getSessionUser(request, env);
   return !!user && user.id === row.user_id;
+}
+
+/** Owner of a run, or null. */
+async function runOwner(env: Env, runId: string): Promise<string | null | undefined> {
+  const row = await env.DB.prepare("SELECT user_id FROM runs WHERE id = ?").bind(runId).first<{ user_id: string | null }>();
+  return row ? row.user_id : undefined; // undefined = no such run
+}
+
+/** Can this request serve a specific artifact? Owner or legacy always; otherwise
+ *  only if it's a published page, or a shared asset of a run that has a published
+ *  artifact (so public pages render with their images/fonts). */
+async function canViewArtifact(env: Env, runId: string, artPath: string, request: Request): Promise<boolean> {
+  const owner = await runOwner(env, runId);
+  if (owner === undefined) return false; // no such run
+  if (owner === null) return true; // legacy / unowned
+  const user = await getSessionUser(request, env);
+  if (user && user.id === owner) return true;
+  if (artPath.startsWith("assets/")) {
+    return !!(await env.DB.prepare("SELECT 1 FROM published WHERE run_id = ? LIMIT 1").bind(runId).first());
+  }
+  return !!(await env.DB.prepare("SELECT 1 FROM published WHERE run_id = ? AND path = ?").bind(runId, artPath).first());
 }
 
 /** Authorize an ingest call against the run's per-run token (stored in D1). */
@@ -82,6 +107,55 @@ export default {
         "SELECT id, url, status, mode, project, created_at FROM runs WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
       ).bind(user.id).all();
       return Response.json({ runs: results ?? [] });
+    }
+
+    // Publish an artifact → a public /p/<token> link (owner only).
+    const pubM = path.match(PUBLISH);
+    if (pubM && request.method === "POST") {
+      const runId = pubM[1];
+      const user = await getSessionUser(request, env);
+      if (!user) return Response.json({ error: "unauthenticated" }, { status: 401 });
+      if ((await runOwner(env, runId)) !== user.id) return Response.json({ error: "forbidden" }, { status: 403 });
+      const { path: artPath, title } = (await request.json()) as { path?: string; title?: string };
+      if (!artPath) return Response.json({ error: "path required" }, { status: 400 });
+      const existing = await env.DB.prepare("SELECT token FROM published WHERE run_id = ? AND path = ?").bind(runId, artPath).first<{ token: string }>();
+      let token = existing?.token;
+      if (!token) {
+        token = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+        await env.DB.prepare("INSERT INTO published (token, run_id, path, user_id, title, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+          .bind(token, runId, artPath, user.id, title ?? null, Date.now()).run();
+      }
+      return Response.json({ token, url: `/p/${token}` });
+    }
+
+    // Unpublish an artifact (owner only).
+    const unpubM = path.match(UNPUBLISH);
+    if (unpubM && request.method === "POST") {
+      const runId = unpubM[1];
+      const user = await getSessionUser(request, env);
+      if (!user) return Response.json({ error: "unauthenticated" }, { status: 401 });
+      if ((await runOwner(env, runId)) !== user.id) return Response.json({ error: "forbidden" }, { status: 403 });
+      const { path: artPath } = (await request.json()) as { path?: string };
+      await env.DB.prepare("DELETE FROM published WHERE run_id = ? AND path = ?").bind(runId, artPath ?? "").run();
+      return Response.json({ ok: true });
+    }
+
+    // List a run's published artifacts (owner only) — drives the workspace UI.
+    const publishedM = path.match(PUBLISHED);
+    if (publishedM && request.method === "GET") {
+      const runId = publishedM[1];
+      const user = await getSessionUser(request, env);
+      if (!user || (await runOwner(env, runId)) !== user.id) return Response.json({ published: [] });
+      const { results } = await env.DB.prepare("SELECT token, path, title FROM published WHERE run_id = ?").bind(runId).all();
+      return Response.json({ published: results ?? [] });
+    }
+
+    // Public link: /p/<token> → redirect to the (now public) artifact.
+    const pM = path.match(PUBLIC);
+    if (pM) {
+      const row = await env.DB.prepare("SELECT run_id, path FROM published WHERE token = ?").bind(pM[1]).first<{ run_id: string; path: string }>();
+      if (!row) return new Response("Not found", { status: 404 });
+      return Response.redirect(`${url.origin}/api/artifacts/${row.run_id}/${row.path}`, 302);
     }
 
     // Create a run (requires a signed-in user; the run is owned by them).
@@ -150,7 +224,8 @@ export default {
     if (path.startsWith("/api/artifacts/")) {
       const rest = path.slice("/api/artifacts/".length);
       const runId = rest.split("/")[0];
-      if (!(await canViewRun(env, runId, request))) return new Response("Forbidden", { status: 403 });
+      const artPath = rest.slice(runId.length + 1);
+      if (!(await canViewArtifact(env, runId, artPath, request))) return new Response("Forbidden", { status: 403 });
       const key = "artifacts/" + rest;
       const object = await env.BUCKET.get(key);
       if (!object) return new Response("Not found", { status: 404 });

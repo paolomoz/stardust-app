@@ -92,6 +92,8 @@ export interface RunState {
   eta?: { seconds: number; at: number }; // ETA bar: estimate + client receipt time
   live?: boolean;             // a fresh run is streaming (not a reopen) → enable toasts
   lastArtifact?: { ref: ArtifactRef; at: number }; // newest artifact → "ready" toast
+  runId?: string;             // the active run's id (for publish/ownership calls)
+  published?: { path: string; url: string }[]; // this run's published artifacts
 }
 
 type Listener = (s: RunState) => void;
@@ -120,6 +122,8 @@ function initial(): RunState {
     eta: undefined,
     live: false,
     lastArtifact: undefined,
+    runId: undefined,
+    published: [],
   };
 }
 

@@ -115,14 +115,39 @@ export async function beginRun(url: string, mode: "scripted" | "agent" | "probe"
     return;
   }
   const { id } = (await res.json()) as { id: string };
-  store.set({ live: true }); // a fresh run → artifact "ready" toasts are wanted
+  store.set({ live: true, runId: id }); // a fresh run → artifact "ready" toasts are wanted
   openSocket(id);
+}
+
+/** Publish an artifact → public /p/<token>. Returns the absolute share URL. */
+export async function publishArtifact(runId: string, path: string, title?: string): Promise<string> {
+  const r = await fetch(`/api/runs/${runId}/publish`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, title }),
+  });
+  if (!r.ok) throw new Error("publish failed");
+  const { url } = (await r.json()) as { url: string };
+  return `${location.origin}${url}`;
+}
+export async function unpublishArtifact(runId: string, path: string): Promise<void> {
+  await fetch(`/api/runs/${runId}/unpublish`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }),
+  });
+}
+export async function fetchPublished(runId: string): Promise<{ path: string; url: string }[]> {
+  try {
+    const r = await fetch(`/api/runs/${runId}/published`);
+    const j = (await r.json()) as { published: { path: string; token: string }[] };
+    return (j.published ?? []).map((p) => ({ path: p.path, url: `/p/${p.token}` }));
+  } catch {
+    return [];
+  }
 }
 
 /** Reopen a finished run by id (/?run=<id>) — connect to its DO, which replays
  *  the saved timeline from D1. No new run is created (no agent cost). */
 export function reopenRun(runId: string): void {
   resetRun();
+  store.set({ runId });
   openSocket(runId);
 }
 
