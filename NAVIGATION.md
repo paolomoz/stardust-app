@@ -56,6 +56,26 @@ This **removes the one-way chain and the Back buttons** (tabs + ladder replace
 them), makes the **ladder a real navigator**, and gives the dashboard +
 deploy/rollout phases a natural home as they come online.
 
+## Audit
+
+Audit is the **same scorecard run at phase boundaries**; its value is the
+before → after delta. It is **optional and on-demand** (costs time + tokens) — at
+any step — never auto-run.
+
+- **A separate "Audit" view** (its own tab, distinct from Brand). Per phase:
+  - **Uplift** → audits the current live site (the baseline).
+  - **Deploy** → audits the deployed page (single-page) vs the baseline.
+  - **Rollout** → audits the rolled-out site (full) vs the baseline.
+- **The action lives in the Audit view**: a "Run audit" CTA until run (explains
+  the cost), then the scorecard with a "Re-audit". No global/floating button.
+- **The score is ambient** — a chip in the **footer rail** (`audit 76 / 100`,
+  later `62 → 94`), visible from any view.
+- **Result audits are comparison-first**: the deploy/rollout audit shows the
+  baseline findings with the resolved ones checked off + the score delta.
+
+Status: built for the Uplift baseline (view + CTA + scorecard + footer chip).
+Deploy/rollout audits + the real audit agent run are follow-ups.
+
 ## Open design calls (proposed defaults — confirm)
 
 - **Subheader = persistent tabs** (not forward-only buttons) → free movement.

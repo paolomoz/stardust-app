@@ -63,8 +63,10 @@ export function wireActions(el: HTMLElement, app: App): void {
       case "dashboard": app.goView("working"); break;
       case "view-working": app.goView("working"); break;
       case "view-brand": app.goView("brand"); break;
+      case "view-audit": app.goView("audit"); break;
       case "view-variants": app.goView("variants"); break;
       case "view-workspace": app.goView("workspace"); break;
+      case "run-audit": app.runAudit(); break;
       case "restart": app.restart(); break;
       case "logout": void logout(); break;
       case "cancel": app.cancel(); break;

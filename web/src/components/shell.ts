@@ -50,12 +50,13 @@ export function viewTabs(state: RunState): string {
   const ready: Record<string, boolean> = {
     working: true,
     brand: !!state.brandReviewUrl,
+    audit: true, // optional, on-demand at any step
     variants: state.variants.length > 0,
     workspace: state.variants.length > 0,
   };
   const tab = (id: ScreenId, label: string) =>
     `<button class="${state.screen === id ? "on" : ""}" data-act="view-${id}"${ready[id] ? "" : " disabled"}>${esc(label)}</button>`;
-  return `<div class="seg tabs" role="group" aria-label="views">${tab("working", "Overview")}${tab("brand", "Brand")}${tab("variants", "Directions")}${tab("workspace", "Workspace")}</div>`;
+  return `<div class="seg tabs" role="group" aria-label="views">${tab("working", "Overview")}${tab("brand", "Brand")}${tab("audit", "Audit")}${tab("variants", "Directions")}${tab("workspace", "Workspace")}</div>`;
 }
 
 export function rail(r: RailState): string {
@@ -69,6 +70,7 @@ export function rail(r: RailState): string {
   else if (r.note) items.push(`<div class="item"><span class="amber">✦</span> ${esc(r.note)}</div>`);
   if (r.variant) items.push(`<div class="item"><span class="ic">▦</span> variant <b id="variantLabel">${esc(r.variant)}</b></div>`);
   else if (typeof r.tensions === "number") items.push(`<div class="item"><span class="ic">▦</span> tensions <b>${r.tensions}</b></div>`);
+  if (r.score) items.push(`<div class="item"><span class="ic">◉</span> audit <b>${esc(r.score)}</b></div>`);
   items.push(`<div class="spacer"></div>`);
   if (r.clock) items.push(`<div class="item clock">${esc(r.clock)}</div>`);
   return `<footer class="rail">${items.join("")}</footer>`;

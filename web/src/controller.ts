@@ -37,4 +37,6 @@ export interface App {
   /** Open an artifact card from the chat on the right (brand → brand screen,
    *  variant → workspace with that variant). */
   openArtifact(a: ArtifactRef): void;
+  /** Run the optional, on-demand audit for the current step. */
+  runAudit(): void;
 }

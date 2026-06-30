@@ -4,7 +4,7 @@
    Worker WebSocket. Keep this transport-agnostic.
    =========================================================================== */
 
-export type ScreenId = "landing" | "working" | "brand" | "variants" | "workspace";
+export type ScreenId = "landing" | "working" | "brand" | "audit" | "variants" | "workspace";
 export type Phase = "prototype" | "deploy";
 export type TaskStatus = "done" | "run" | "wait";
 export type VariantId = "A" | "B" | "C";
@@ -65,8 +65,24 @@ export interface RailState {
   note?: string;
   variant?: string;      // workspace: "C · cinematic" (rendered with #variantLabel)
   tensions?: number;     // brand/variants: "tensions N"
+  score?: string;        // ambient audit score chip, e.g. "62 / 100" or "62 → 94"
   clock?: string;
   busy?: boolean;        // show spinner + "reading…" item
+}
+
+// An audit is an optional, on-demand scored diagnosis — of the current live site
+// (uplift baseline) or of the result (deploy/rollout). Costs time + tokens, so
+// it's never auto-run. See NAVIGATION.md.
+export interface AuditFinding {
+  n: string;
+  text: string;
+  fixed?: boolean;       // resolved in the redesign (for before/after audits)
+}
+export interface AuditState {
+  status: "idle" | "running" | "done";
+  score?: number;        // 0..100
+  baseline?: number;     // the uplift-baseline score, for the after-audit delta
+  findings: AuditFinding[];
 }
 
 export interface RunState {
@@ -94,6 +110,7 @@ export interface RunState {
   lastArtifact?: { ref: ArtifactRef; at: number }; // newest artifact → "ready" toast
   runId?: string;             // the active run's id (for publish/ownership calls)
   published?: { path: string; url: string }[]; // this run's published artifacts
+  audit?: AuditState;         // optional on-demand audit (uplift baseline / result)
 }
 
 type Listener = (s: RunState) => void;
@@ -124,6 +141,7 @@ function initial(): RunState {
     lastArtifact: undefined,
     runId: undefined,
     published: [],
+    audit: undefined,
   };
 }
 
