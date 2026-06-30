@@ -69,12 +69,12 @@ export default {
       const { url: target, mode } = (await request.json()) as { url?: string; mode?: string };
       if (!target) return Response.json({ error: "url required" }, { status: 400 });
       const runMode =
-        mode === "cerebras" ? "cerebras"
-        : mode === "bedrock" ? "bedrock"
+        mode === "demo" || mode === "scripted" ? "scripted"
+        : mode === "cerebras" ? "cerebras"
         : mode === "uplift" ? "uplift"
         : mode === "agent" ? "agent"
         : mode === "probe" ? "probe"
-        : "scripted";
+        : "bedrock"; // default = real Opus-on-Bedrock run
       const id = crypto.randomUUID();
       await env.DB.prepare("INSERT INTO runs (id, url, status, mode, user_id, created_at) VALUES (?, ?, 'pending', ?, ?, ?)")
         .bind(id, target, runMode, user.id, Date.now())

@@ -30,8 +30,8 @@ lsof -nP -iTCP:8790 -sTCP:LISTEN -t >/dev/null && echo "runner UP"
 ```
 
 The URL **mode** is chosen by a query param:
-- `http://localhost:5173/` → **scripted demo** (FREE, replays the knack sample)
-- `…/?mode=bedrock` → **real run, Claude Opus** ($ COST)
+- `http://localhost:5173/` → **real run, Claude Opus on Bedrock** ($ COST) — the default
+- `…/?mode=demo` → **scripted demo** (FREE, replays the knack sample)
 - `…/?mode=cerebras` → real run, Gemma (cheaper, lower quality)
 - `…/?run=<id>` → **reopen** a finished run (FREE, replays from the database)
 
@@ -71,7 +71,7 @@ This is the fastest way to feel the **whole transition flow** (landing → worki
 → brand → variants → workspace) with zero cost. It replays the canned knack
 sample.
 
-Open: **http://localhost:5173/** (no `?mode`)
+Open: **http://localhost:5173/?mode=demo**
 
 1. [ ] Landing hero with a URL field (prefilled). Click the **arrow** to start.
 2. [ ] **Working** screen: task list ticks (crawl → read → extract → analyze →
@@ -169,7 +169,7 @@ unless you specifically want to see a crash message.
 ## 7. FREE — Reduced motion (accessibility)
 
 1. Turn on **System Settings → Accessibility → Display → Reduce motion** (macOS).
-2. Reload **http://localhost:5173/** and run the scripted demo (#2).
+2. Reload **http://localhost:5173/?mode=demo** and run the scripted demo (#2).
 3. [ ] Spinners/rings don't animate, screen transitions are instant, the progress
        bar jumps rather than slides. The flow is still fully usable.
 

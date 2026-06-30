@@ -18,18 +18,18 @@ import { fetchMe } from "./auth";
 import type { ArtifactRef } from "./state";
 import { beginRun, navTo, openVariant, selectVariant, cancelRun, sendMessage, resetRun, reopenRun } from "./driver/liveDriver";
 
-// Dev affordance: /?mode=agent runs a real Managed Agents session;
-// /?mode=probe runs a cheap skill-load probe (reads SKILL.md, no rendering).
-// /?mode=uplift = real run via Managed Agents; /?mode=cerebras = real run via the
-// open-loop runtime (Gemma 4 on Cerebras).
+// Default (no param) = a real Opus-on-Bedrock run. Opt into others by param:
+//   ?mode=demo     — scripted offline demo (free, replays the knack sample)
+//   ?mode=cerebras — open-loop runtime on Gemma 4 (Cerebras)
+//   ?mode=uplift|agent|probe — Managed Agents paths (probe = cheap skill-load)
 const _mode = new URLSearchParams(location.search).get("mode");
 const runMode =
-  _mode === "cerebras" ? "cerebras"
-  : _mode === "bedrock" ? "bedrock"
+  _mode === "demo" || _mode === "scripted" ? "scripted"
+  : _mode === "cerebras" ? "cerebras"
   : _mode === "uplift" ? "uplift"
   : _mode === "agent" ? "agent"
   : _mode === "probe" ? "probe"
-  : "scripted";
+  : "bedrock";
 
 const app: App = {
   start: (url) => void beginRun(url, runMode),
