@@ -101,6 +101,10 @@ export class RunSession extends DurableObject<Env> {
             /* skip malformed */
           }
         }
+        // Continue the seq past the restored timeline — otherwise the next emit
+        // (e.g. a workspace iteration) collides with an existing (run_id, seq)
+        // row and the INSERT throws, aborting the command after the WS broadcast.
+        this.seq = rows.length;
         await this.rehydrateResult(runId);
         for (const ev of this.events) server.send(JSON.stringify(ev));
       } else {
