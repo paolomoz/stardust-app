@@ -79,6 +79,7 @@ export interface RunState {
   activeVariant: VariantId;
   viewport: "desktop" | "mobile";
   rail: RailState;
+  error?: string;             // set when a run fails/cancels — working screen shows it
 }
 
 type Listener = (s: RunState) => void;
@@ -102,6 +103,7 @@ function initial(): RunState {
     activeVariant: "C",
     viewport: "desktop",
     rail: { swatches: [] },
+    error: undefined,
   };
 }
 

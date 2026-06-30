@@ -23,6 +23,8 @@ export interface App {
   goto(screen: ScreenId): void;
   /** Reset everything to the landing screen. */
   restart(): void;
+  /** Stop an in-flight run (Stop button on the working screen). */
+  cancel(): void;
   /** Workspace: switch the active variant (hot-swaps the iframe). */
   setVariant(id: VariantId): void;
   /** Workspace: desktop/mobile preview. */

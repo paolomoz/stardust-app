@@ -11,7 +11,7 @@ import { working } from "./screens/working";
 import { brand } from "./screens/brand";
 import { variants } from "./screens/variants";
 import { workspace } from "./screens/workspace";
-import { beginRun, navTo, openVariant, selectVariant, sendMessage, resetRun, reopenRun } from "./driver/liveDriver";
+import { beginRun, navTo, openVariant, selectVariant, cancelRun, sendMessage, resetRun, reopenRun } from "./driver/liveDriver";
 
 // Dev affordance: /?mode=agent runs a real Managed Agents session;
 // /?mode=probe runs a cheap skill-load probe (reads SKILL.md, no rendering).
@@ -33,6 +33,7 @@ const app: App = {
   openVariant: (id) => openVariant(id),
   goto: (screen) => navTo(screen),
   restart: () => resetRun(),
+  cancel: () => cancelRun(),
   setVariant: (id: VariantId) => {
     store.set({ activeVariant: id });
     selectVariant(id);

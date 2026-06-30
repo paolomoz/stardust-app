@@ -19,6 +19,7 @@
        /workspace/stardust tree + /mnt/session/outputs from the original run.
    =========================================================================== */
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { makeProvider } from "./provider.mjs";
 import { makeBedrockProvider } from "./provider-bedrock.mjs";
 import { makeIngest } from "./ingest.mjs";
@@ -67,6 +68,15 @@ const iterateTask =
 const task = iterate ? iterateTask : upliftTask;
 const iterateHint = `Finish the requested change to variant ${variantId}, upload the updated ${variantFile}, then call emit_milestone with phase "iterate" and event "done".`;
 
+// On iteration, point impeccable's context loader at the persisted design context
+// (stardust:uplift writes PRODUCT.md/DESIGN.* under stardust/current/, which sits
+// below the /workspace cwd where context.mjs would otherwise find nothing).
+if (iterate && !env.IMPECCABLE_CONTEXT_DIR) {
+  for (const d of [`${workdir}/stardust/current`, `${workdir}/stardust`]) {
+    if (existsSync(`${d}/PRODUCT.md`) || existsSync(`${d}/DESIGN.md`)) { process.env.IMPECCABLE_CONTEXT_DIR = d; break; }
+  }
+}
+
 try {
   await ingest.event({ type: "narration", text: iterate
     ? `${provider.name} ${provider.model} — re-rendering variant ${variantId}: ${instruction}`
@@ -88,7 +98,18 @@ try {
   }
   console.log(`runtime finished: mode=${iterate ? "iterate" : "uplift"} done=${done} calls=${usage.calls} tokens=${usage.total}`);
 } catch (e) {
-  console.error("runtime error:", e?.message ?? e);
-  await ingest.event({ type: "narration", text: `Run error: ${e?.message ?? e}` }).catch(() => {});
-  process.exit(1);
+  const message = String(e?.message ?? e);
+  console.error("runtime error:", message);
+  // Structured failure so the UI shows an honest error, not a hung spinner. An
+  // iteration failure must NOT fail the whole (already-done) run. If we report
+  // it ourselves, exit 0 so the runner's exit backstop doesn't double-report;
+  // exit 1 only when we couldn't (then the runner reports for us).
+  let reported = false;
+  try {
+    await ingest.event(iterate
+      ? { phase: "iterate", event: "failed", variant: variantId, message }
+      : { phase: "failed", message });
+    reported = true;
+  } catch { /* fall through to non-zero exit */ }
+  process.exit(reported ? 0 : 1);
 }

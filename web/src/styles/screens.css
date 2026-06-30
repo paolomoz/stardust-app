@@ -70,6 +70,13 @@
 .work .pbar { height: 5px; border-radius: 5px; background: var(--sunken); overflow: hidden; }
 .work .pbar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--amber-deep), var(--amber)); transition: width 1s linear; }
 .work .note { font-size: 12px; color: var(--fg-dim); margin-top: 6px; }
+
+/* Honest failure card — replaces the loading stage when a run stops/errors. */
+.errcard { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 40px 28px; text-align: center; background: radial-gradient(ellipse 70% 60% at 50% 38%, #efe7d6 0%, var(--canvas) 70%); }
+.errcard .errmark { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font: 700 22px/1 var(--display); color: #fff; background: var(--amber-deep); }
+.errcard h2 { font: 600 20px/1.2 var(--display); letter-spacing: -0.02em; color: var(--fg); margin: 0; }
+.errcard .errmsg { font-size: 13.5px; line-height: 1.5; color: var(--fg-dim); max-width: 360px; }
+.errcard .btn { margin-top: 6px; }
 .skel { width: 420px; max-width: 90%; margin-top: 28px; display: grid; grid-template-columns: 1.2fr 1fr; gap: 10px; }
 .sk { border-radius: 10px; background: linear-gradient(100deg, var(--sunken) 30%, var(--surface) 50%, var(--sunken) 70%); background-size: 200% 100%; animation: shimmer 1.5s linear infinite; }
 .sk.big { grid-row: span 2; height: 120px; }
@@ -119,4 +126,11 @@
   .spin, .ring, .ring2, .bigstar { animation: none; }
   .sk { animation: none; background: var(--sunken); }
   .work .pbar i { transition: none; }
+  /* Catch-all safety net: neutralize any remaining motion/transition. */
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

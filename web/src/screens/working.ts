@@ -25,7 +25,7 @@ function taskRow(t: TaskItem): string {
 export function working(state: RunState, app: App): Screen {
   const el = h(`<div class="app">
     ${topbar(state.phase, [
-      { label: "Restart", kind: "quiet", to: "restart" },
+      { label: "Stop", kind: "quiet", to: "cancel", id: "stopBtn" },
       { label: "See snapshot", kind: "primary", to: "snapshot", arrow: true, id: "snapBtn", disabled: !state.snapshotReady },
     ])}
     <div class="middle">
@@ -93,6 +93,22 @@ export function working(state: RunState, app: App): Screen {
     // agent-mode narration
     const log = el.querySelector<HTMLElement>(".agentlog");
     if (log) log.innerHTML = s.messages.map((m) => message(m, KNACK_SEED_NOTE)).join("");
+    // honest failure: swap the loading stage for an error card, stop the spinners
+    if (s.error) {
+      const panel = el.querySelector<HTMLElement>(".panel .preview");
+      if (panel && !panel.querySelector(".errcard")) {
+        panel.innerHTML = `<div class="errcard">
+          <div class="errmark">!</div>
+          <h2>Run stopped</h2>
+          <div class="errmsg">${esc(s.error)}</div>
+          <button class="btn btn-primary" data-act="restart">Start over</button>
+        </div>`;
+        wireActions(panel, app);
+      }
+      el.querySelector(".panel .sub-right .spin")?.remove();
+      const stop = el.querySelector<HTMLButtonElement>("#stopBtn");
+      if (stop) stop.disabled = true;
+    }
   };
 
   return { el, update };
@@ -104,6 +120,7 @@ export function wireActions(el: HTMLElement, app: App): void {
     b.addEventListener("click", () => {
       const act = b.getAttribute("data-act")!;
       if (act === "restart") app.restart();
+      else if (act === "cancel") app.cancel();
       else if (act === "snapshot") app.goSnapshot();
       else if (act === "variants") app.goVariants();
       else if (act === "back-working") app.goto("working");

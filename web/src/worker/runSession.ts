@@ -436,7 +436,7 @@ export class RunSession extends DurableObject<Env> {
    *  tasks.init so labels/details reflect the real run, not canned demo copy. */
   async ingestEvent(runId: string, ev: unknown): Promise<void> {
     if (!this.runId) this.runId = runId;
-    const e = (ev ?? {}) as { type?: string; text?: string; name?: string; phase?: string; event?: string; seed?: string; items?: { n: string; text: string }[]; brandReview?: string; sharedFixes?: string[]; variants?: unknown[]; variant?: string; file?: string };
+    const e = (ev ?? {}) as { type?: string; text?: string; name?: string; phase?: string; event?: string; seed?: string; items?: { n: string; text: string }[]; brandReview?: string; sharedFixes?: string[]; variants?: unknown[]; variant?: string; file?: string; message?: string };
 
     // Narration / tool activity from the open-loop runtime → conversation thread.
     if (e.type === "narration" && e.text) {
@@ -448,9 +448,22 @@ export class RunSession extends DurableObject<Env> {
       return;
     }
 
-    // M6: an iteration finished re-rendering a variant → hot-swap the preview.
+    // M6: an iteration finished. Failure must NOT fail the (already-done) run —
+    // just report it and leave the variant usable; success hot-swaps the preview.
     if (e.phase === "iterate") {
+      if (e.event === "failed") {
+        await this.emit({ t: "message.append", message: { id: `iterr-${this.seq}`, role: "agent", lead: `Couldn't apply that change${e.message ? ` — ${e.message}` : ""}. The variant is unchanged — try rephrasing.` } });
+        const card = this.realVariants?.variants.find((v) => v.id === this.activeVariant) ?? this.realVariants?.variants.slice(-1)[0];
+        await this.emit({ t: "rail", rail: rail({ signature: "watch it build", variant: card?.segLabel ?? "—", clock: "⏱ ready to iterate" }) });
+        return;
+      }
       await this.hotSwapVariant(e.variant, e.file);
+      return;
+    }
+
+    // The run itself crashed (runtime reported, or the runner backstop did).
+    if (e.phase === "failed") {
+      await this.fail(e.message || "the run failed");
       return;
     }
     const set = (id: string, status?: TaskItem["status"], detail?: string) => {
@@ -495,6 +508,13 @@ export class RunSession extends DurableObject<Env> {
       await this.emit({ t: "status", text: `variant ${e.variant ?? ""} rendered` });
       await this.emit({ t: "progress", value: 88 });
     } else if (e.phase === "done") {
+      if (this.finished) return;
+      // Honest empty state: a real run that produced no variants (bot-wall /
+      // too-sparse brand) should say so, not fall back to demo cards.
+      if (this.uplift && !this.realVariants?.variants?.length) {
+        await this.emit({ t: "message.append", message: { id: `empty-${this.seq}`, role: "agent", lead: "I couldn't read enough of the brand to produce variants — the site may block crawlers or be too sparse. Try another URL." } });
+        return this.fail("No variants were produced.");
+      }
       this.finished = true;
       set("generate", "done");
       set("validate", "done");
@@ -544,9 +564,29 @@ export class RunSession extends DurableObject<Env> {
   }
 
   private async fail(reason: string): Promise<void> {
+    if (this.finished) return; // a completed/failed/canceled run is terminal
+    this.finished = true;
+    this.clearTimers();
     await this.emit({ t: "error", message: reason });
     await this.emit({ t: "run.done" });
     await this.env.DB.prepare("UPDATE runs SET status = 'error' WHERE id = ?").bind(this.runId).run();
+  }
+
+  /** Stop an in-flight run: kill its container (via the runner) and mark it
+   *  canceled. No-op once the run is terminal. */
+  private async cancel(): Promise<void> {
+    if (this.finished) return;
+    this.finished = true;
+    this.clearTimers();
+    const row = await this.env.DB.prepare("SELECT ingest_token AS token FROM runs WHERE id = ?").bind(this.runId).first<{ token: string | null }>();
+    const cancelUrl = (this.env.RUNNER_URL ?? "http://localhost:8790/run").replace(/\/run$/, "/cancel");
+    try {
+      await fetch(cancelUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: this.runId, token: row?.token }) });
+    } catch { /* the run is marked canceled regardless */ }
+    await this.emit({ t: "message.append", message: { id: `cx-${this.seq}`, role: "agent", lead: "Run canceled." } });
+    await this.emit({ t: "error", message: "Run canceled." });
+    await this.emit({ t: "run.done" });
+    await this.env.DB.prepare("UPDATE runs SET status = 'canceled' WHERE id = ?").bind(this.runId).run();
   }
 
   private async toBrand(): Promise<void> {
@@ -630,6 +670,7 @@ export class RunSession extends DurableObject<Env> {
     }
     if (cmd.t === "open") return this.toWorkspace(cmd.variant);
     if (cmd.t === "select") { this.activeVariant = cmd.variant; return; }
+    if (cmd.t === "cancel") return this.cancel();
     if (cmd.t === "send") return this.onSend(cmd.screen, cmd.text);
   }
 

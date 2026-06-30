@@ -18,6 +18,25 @@ const PORT = Number(process.env.RUNNER_PORT || 8790);
 const IMAGE = process.env.IMAGE || "stardust-sandbox";
 const OUTPUTS_DIR = resolve(process.env.OUTPUTS_DIR || `${process.cwd()}/sandbox/outputs`);
 const INGEST_BASE = process.env.INGEST_BASE || "http://host.docker.internal:5173";
+// From the runner (on the host), reach the Worker directly — host.docker.internal
+// is a container-only alias. Used to report a hard crash the runtime couldn't.
+const SELF_INGEST = process.env.RUNNER_INGEST_BASE || "http://localhost:5173";
+
+// Runs the operator intentionally stopped — their container exit must not be
+// reported as a failure.
+const canceled = new Set();
+
+const containerName = (runId, mode) => `stardust-${runId}${mode === "iterate" ? "-iter" : ""}`;
+
+async function reportFailure(runId, token, mode, variantId, message) {
+  try {
+    await fetch(`${SELF_INGEST}/api/ingest/${runId}/event`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify(mode === "iterate" ? { phase: "iterate", event: "failed", variant: variantId, message } : { phase: "failed", message }),
+    });
+  } catch { /* best effort */ }
+}
 
 // Per-backend config from the host environment (app/.env).
 const CEREBRAS_API_KEY = process.env.CEREBRAS_API_KEY;
@@ -75,21 +94,43 @@ function startContainer({ runId, url, token, backend, mode, instruction, variant
     ...envVars,
   }).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
 
+  const name = containerName(runId, mode);
   const args = [
-    "run", "--rm",
+    "run", "--rm", "--name", name,
     ...envArgs,
     "-v", `${out}:/mnt/session/outputs`,
     "-v", `${work}:/workspace/stardust`,
     "--entrypoint", "node",
     IMAGE, "/workspace/runtime/agent.mjs",
   ];
-  const child = spawn("docker", args, { stdio: "inherit", detached: true });
+  canceled.delete(runId);
+  const child = spawn("docker", args, { stdio: "inherit" });
+  child.on("exit", (code) => {
+    // Backstop: report a crash the runtime couldn't (OOM / hard kill). Skip
+    // intentional cancels and clean exits.
+    if (canceled.has(runId)) { canceled.delete(runId); return; }
+    if (code && code !== 0) {
+      console.log(`[runner] run ${runId} exited ${code} — reporting failure`);
+      void reportFailure(runId, token, mode, variantId, `the runtime exited with code ${code}`);
+    }
+  });
   child.unref();
   console.log(`[runner] spawned [${_label}] ${isIterate ? `iterate(${variantId}: ${instruction})` : "container"} for run ${runId} (${url})`);
 }
 
+function cancelRun(runId) {
+  canceled.add(runId);
+  for (const m of ["uplift", "iterate"]) {
+    const child = spawn("docker", ["kill", containerName(runId, m)], { stdio: "ignore" });
+    child.on("error", () => {});
+  }
+  console.log(`[runner] cancel requested for run ${runId}`);
+}
+
 createServer((req, res) => {
-  if (req.method !== "POST" || !req.url?.endsWith("/run")) {
+  const isRun = req.method === "POST" && req.url?.endsWith("/run");
+  const isCancel = req.method === "POST" && req.url?.endsWith("/cancel");
+  if (!isRun && !isCancel) {
     res.writeHead(404).end("not found");
     return;
   }
@@ -98,8 +139,13 @@ createServer((req, res) => {
   req.on("end", () => {
     try {
       const { runId, url, token, backend, mode, instruction, variantId, variantFile } = JSON.parse(body || "{}");
-      if (!runId || !token) throw new Error("runId and token required");
-      startContainer({ runId, url: url || "", token, backend: backend || "bedrock", mode, instruction, variantId, variantFile });
+      if (!runId) throw new Error("runId required");
+      if (isCancel) {
+        cancelRun(runId);
+      } else {
+        if (!token) throw new Error("token required");
+        startContainer({ runId, url: url || "", token, backend: backend || "bedrock", mode, instruction, variantId, variantFile });
+      }
       res.writeHead(202, { "content-type": "application/json" }).end(JSON.stringify({ ok: true }));
     } catch (e) {
       res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: String(e.message || e) }));
