@@ -105,6 +105,7 @@ export function createConversation(app: App): Conversation {
       <div class="conv-thread"></div>
       <div class="thinking" hidden aria-label="thinking"><span></span><span></span><span></span></div>
     </div>
+    <div class="eta" hidden><div class="eta-bar"><i></i></div><div class="eta-label"></div></div>
     <div class="composer">
       <div class="field"><input type="text" placeholder="tell stardust…" aria-label="message" /><button class="send" aria-label="send">${sendArrow}</button></div>
       <div class="hint">Working — in reality a few minutes.</div>
@@ -118,6 +119,9 @@ export function createConversation(app: App): Conversation {
   const projEl = el.querySelector<HTMLElement>("#convProj")!;
   const input = el.querySelector<HTMLInputElement>(".composer input")!;
   const sendBtn = el.querySelector<HTMLButtonElement>(".composer .send")!;
+  const etaWrap = el.querySelector<HTMLElement>(".eta")!;
+  const etaFill = el.querySelector<HTMLElement>(".eta-bar i")!;
+  const etaLabel = el.querySelector<HTMLElement>(".eta-label")!;
 
   // Stick-to-bottom: auto-scroll only while the user is at (near) the bottom.
   let stuck = true;
@@ -147,7 +151,26 @@ export function createConversation(app: App): Conversation {
 
   let renderedIds: string[] = [];
 
+  // ETA bar — fills toward the estimate (caps at 95% so it never claims done
+  // early). A timer repaints every 500ms since the store doesn't tick.
+  let lastState: RunState | null = null;
+  const dur = (sec: number) => (sec >= 90 ? `~${Math.round(sec / 60)} min` : `~${Math.round(sec)}s`);
+  const remain = (sec: number) => (sec <= 1 ? "almost there" : sec >= 90 ? `~${Math.round(sec / 60)} min left` : `~${Math.round(sec)}s left`);
+  const paintEta = () => {
+    const s = lastState;
+    const show = !!(s?.agentBusy && s.eta);
+    etaWrap.hidden = !show;
+    if (!show || !s?.eta) return;
+    const elapsed = (Date.now() - s.eta.at) / 1000;
+    const frac = Math.min(0.95, elapsed / Math.max(1, s.eta.seconds));
+    etaFill.style.width = `${Math.round(frac * 100)}%`;
+    etaLabel.textContent = `${remain(s.eta.seconds - elapsed)} · est. ${dur(s.eta.seconds)}`;
+  };
+  setInterval(paintEta, 500);
+
   const update = (s: RunState) => {
+    lastState = s;
+    paintEta();
     projEl.textContent = s.projectName || "—";
 
     // Pinned tasks during the working phase only.

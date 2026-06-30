@@ -32,6 +32,7 @@ export type ServerEvent =
   | { t: "panel.workspace"; activeVariant: VariantId; variants: VariantCard[] }
   | { t: "rail"; rail: RailState }
   | { t: "busy"; value: boolean }       // agent working ↔ idle (drives the chat thinking dots)
+  | { t: "eta"; seconds: number }       // estimated time for the in-flight task (ETA bar)
   | { t: "run.done" }
   | { t: "error"; message: string };
 

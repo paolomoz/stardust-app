@@ -89,6 +89,7 @@ export interface RunState {
   rail: RailState;
   error?: string;             // set when a run fails/cancels — working screen shows it
   agentBusy?: boolean;        // agent is working → show thinking dots in the chat
+  eta?: { seconds: number; at: number }; // ETA bar: estimate + client receipt time
 }
 
 type Listener = (s: RunState) => void;
@@ -114,6 +115,7 @@ function initial(): RunState {
     rail: { swatches: [] },
     error: undefined,
     agentBusy: false,
+    eta: undefined,
   };
 }
 

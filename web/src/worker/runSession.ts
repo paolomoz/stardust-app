@@ -183,6 +183,33 @@ export class RunSession extends DurableObject<Env> {
     return { swatches: this.realPalette ?? KNACK_PALETTE, ...partial };
   }
 
+  /** Quick LLM time estimate (Haiku) for the in-flight task, in seconds. Runs
+   *  in parallel with the real work, clamped to a sane range, with a heuristic
+   *  fallback when the model/key is unavailable. */
+  private async estimateEta(kind: "run" | "iterate", detail: string): Promise<number> {
+    const fallback = kind === "run" ? 22 * 60 : 3 * 60;
+    const key = this.env.ANTHROPIC_API_KEY;
+    if (!key) return fallback;
+    const prompt = kind === "run"
+      ? `A design studio will fully redesign the homepage at ${detail} into three polished, brand-faithful variants: read the live brand, identify tensions, then build three production-quality HTML pages with in-browser visual QA. Estimate the wall-clock time in MINUTES for a thorough job. Reply with ONLY an integer.`
+      : `A designer will apply this single change to an existing prototype web page, including in-browser QA: "${detail}". Estimate the wall-clock time in MINUTES. Reply with ONLY an integer.`;
+    try {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 8, messages: [{ role: "user", content: prompt }] }),
+      });
+      if (!r.ok) return fallback;
+      const j = (await r.json()) as { content?: { text?: string }[] };
+      const mins = parseInt(j.content?.[0]?.text?.match(/\d+/)?.[0] ?? "", 10);
+      if (!Number.isFinite(mins)) return fallback;
+      const clamped = kind === "run" ? Math.min(45, Math.max(8, mins)) : Math.min(12, Math.max(1, mins));
+      return clamped * 60;
+    } catch {
+      return fallback;
+    }
+  }
+
   /* ---- the scripted run ---- */
 
   private async start(runId: string): Promise<void> {
@@ -215,6 +242,7 @@ export class RunSession extends DurableObject<Env> {
     await this.emit({ t: "progress", value: 8 });
     await this.emit({ t: "status", text: STATUS_TICKER[0] });
     await this.emit({ t: "busy", value: true });
+    await this.emit({ t: "eta", seconds: 6 }); // demo timeline is ~6s
     await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock: "⏱ ~ a few minutes · reading the site" } });
     await this.emit({ t: "message.append", message: { id: "intro", role: "agent", lead: `On it — reading **${this.project}**, learning the brand, and composing directions.`, body: ["This normally takes a few minutes. I'll show the snapshot the moment it's ready."] } });
     await this.emit({ t: "screen", screen: "working" });
@@ -415,6 +443,7 @@ export class RunSession extends DurableObject<Env> {
     await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock } });
     await this.emit({ t: "message.append", message: { id: "intro", role: "agent", lead: `On it — reading **${this.project}**, learning the brand, and composing directions.`, body: ["This normally takes a few minutes. I'll show the snapshot the moment it's ready."] } });
     await this.emit({ t: "screen", screen: "working" });
+    void this.estimateEta("run", url).then((seconds) => this.emit({ t: "eta", seconds })).catch(() => {});
 
     const token = crypto.randomUUID().replace(/-/g, "");
     await this.env.DB.prepare("UPDATE runs SET ingest_token = ? WHERE id = ?").bind(token, this.runId).run();
@@ -751,6 +780,7 @@ export class RunSession extends DurableObject<Env> {
 
     await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `On it — re-rendering variant **${card.id}**: ${text}` } });
     await this.emit({ t: "busy", value: true });
+    void this.estimateEta("iterate", text).then((seconds) => this.emit({ t: "eta", seconds })).catch(() => {});
     await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card.segLabel, busy: true, clock: `⏱ re-rendering ${card.id}` }) });
 
     try {

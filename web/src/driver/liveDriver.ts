@@ -79,7 +79,11 @@ function apply(ev: ServerEvent): void {
       store.set({ rail: ev.rail });
       break;
     case "busy":
-      store.set({ agentBusy: ev.value });
+      // Starting new work clears any stale estimate from the previous task.
+      store.set(ev.value ? { agentBusy: true, eta: undefined } : { agentBusy: false });
+      break;
+    case "eta":
+      store.set({ eta: { seconds: ev.seconds, at: Date.now() } });
       break;
     case "run.done":
       store.set({ agentBusy: false });

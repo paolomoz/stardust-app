@@ -167,6 +167,13 @@ body.ready .stagger > * { animation-play-state: running; }
 .seed .k { color: var(--fg-faint); }
 .seed .h { color: var(--amber-deep); }
 
+/* ETA bar — between the chat and the composer while the agent works. */
+.eta { padding: 10px 14px 0; }
+.eta[hidden] { display: none; }
+.eta-bar { height: 5px; border-radius: 5px; background: var(--sunken); overflow: hidden; }
+.eta-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--amber-deep), var(--amber)); transition: width .5s linear; }
+.eta-label { margin-top: 6px; font: 500 11px/1 var(--mono); color: var(--fg-faint); }
+
 .composer { padding: 12px 14px 14px; border-top: 1px solid var(--hairline-soft); }
 .composer .field { display: flex; align-items: center; gap: 9px; background: var(--surface); border: 1px solid var(--hairline-soft); border-radius: 12px; padding: 9px 9px 9px 13px; transition: border-color .2s var(--ease), box-shadow .2s var(--ease); }
 .composer .field:focus-within { border-color: rgba(201,130,45,0.6); box-shadow: 0 0 0 3px rgba(201,130,45,0.14); }
