@@ -294,6 +294,7 @@ body.ready .stagger > * { animation-play-state: running; }
 /* --- micro nav (subheader): view tabs --- */
 .seg.tabs button { padding: 5px 12px; }
 .seg.tabs button[disabled] { opacity: .38; pointer-events: none; }
-.subheader .segdiv { width: 1px; height: 20px; background: var(--hairline-soft); margin: 0 2px; }
+.subheader .segdiv { width: 1px; height: 18px; background: var(--hairline); margin: 0 12px; flex: none; }
+.subheader .eyebrow.ovw { margin-left: 2px; }
 .donetag { font: 500 12px/1 var(--mono); color: var(--success); }
 .donetag.err { color: var(--danger, #b4452f); }
