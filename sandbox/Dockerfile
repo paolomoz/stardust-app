@@ -21,9 +21,11 @@ WORKDIR /workspace
 
 # Playwright + Chromium (+ system deps) so stardust:extract can render live sites.
 # Installed under /workspace/node_modules so the skills' scripts resolve it.
-RUN npm init -y >/dev/null 2>&1 \
-  && npm install playwright@latest \
-  && npx playwright install --with-deps chromium
+# Split into separate layers (node_modules / apt deps / browser binary) so no
+# single blob is large enough to choke a slow registry push.
+RUN npm init -y >/dev/null 2>&1 && npm install playwright@latest
+RUN npx playwright install-deps chromium
+RUN npx playwright install chromium
 
 # Bake the skills (staged by build.sh into ./skills). The agent's system prompt
 # points at /workspace/skills/{stardust,impeccable}.
