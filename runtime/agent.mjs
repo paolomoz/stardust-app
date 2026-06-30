@@ -68,6 +68,18 @@ const iterateTask =
 const task = iterate ? iterateTask : upliftTask;
 const iterateHint = `Finish the requested change to variant ${variantId}, upload the updated ${variantFile}, then call emit_milestone with phase "iterate" and event "done".`;
 
+// The design context an iteration needs (impeccable reads these). Snapshotted to
+// R2 at the end of a run and restored at the start of an iteration — so iterate
+// works even on Cloudflare Containers' ephemeral disk (no bind mount).
+const CTX_FILES = ["PRODUCT.md", "DESIGN.md", "DESIGN.json", "_brand-extraction.json"];
+const ctxDir = `${workdir}/stardust/current`;
+
+if (iterate) {
+  // Restore the target variant + design context from R2 (best-effort).
+  await ingest.download(variantFile, `${outputsDir}/${variantFile}`).catch(() => {});
+  for (const f of CTX_FILES) await ingest.download(`_ctx/${f}`, `${ctxDir}/${f}`).catch(() => {});
+}
+
 // On iteration, point impeccable's context loader at the persisted design context
 // (stardust:uplift writes PRODUCT.md/DESIGN.* under stardust/current/, which sits
 // below the /workspace cwd where context.mjs would otherwise find nothing).
@@ -95,6 +107,10 @@ try {
     await ingest.event(iterate
       ? { phase: "iterate", event: "done", variant: variantId, file: variantFile }
       : { phase: "done" }).catch(() => {});
+  }
+  // Snapshot the design context to R2 so a later iteration can restore it.
+  if (!iterate) {
+    for (const f of CTX_FILES) await ingest.uploadFrom(`_ctx/${f}`, `${ctxDir}/${f}`).catch(() => {});
   }
   console.log(`runtime finished: mode=${iterate ? "iterate" : "uplift"} done=${done} calls=${usage.calls} tokens=${usage.total}`);
 } catch (e) {

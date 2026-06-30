@@ -3,8 +3,8 @@
    + deliverables to the Worker, which fans them to R2 + the Durable Object + UI.
    Reused verbatim so the new runtime is a drop-in brain for the existing UI.
    =========================================================================== */
-import { readFile } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { dirname, extname, join } from "node:path";
 
 const MIME = {
   ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".mjs": "text/javascript",
@@ -30,6 +30,23 @@ export function makeIngest({ base, runId, token, outputsDir }) {
       const r = await fetch(`${root}/artifact/${clean}`, { method: "PUT", headers: { ...auth, "content-type": ct }, body });
       if (!r.ok) throw new Error(`ingest artifact ${r.status}: ${(await r.text()).slice(0, 200)}`);
       return `uploaded ${clean} (${body.length}B)`;
+    },
+    /** Upload an absolute file to an R2 key under the run (for context outside outputsDir). */
+    async uploadFrom(key, absPath) {
+      const clean = String(key).replace(/^\/+/, "");
+      const body = await readFile(absPath);
+      const ct = MIME[extname(clean).toLowerCase()] || "application/octet-stream";
+      const r = await fetch(`${root}/artifact/${clean}`, { method: "PUT", headers: { ...auth, "content-type": ct }, body });
+      if (!r.ok) throw new Error(`ingest uploadFrom ${r.status}`);
+    },
+    /** Download an R2 key (this run's artifact) to a local path. Used to restore
+     *  iteration inputs on Containers' ephemeral disk. */
+    async download(key, destPath) {
+      const clean = String(key).replace(/^\/+/, "");
+      const r = await fetch(`${root}/artifact/${clean}`, { headers: { ...auth } });
+      if (!r.ok) throw new Error(`ingest download ${r.status}`);
+      await mkdir(dirname(destPath), { recursive: true });
+      await writeFile(destPath, Buffer.from(await r.arrayBuffer()));
     },
   };
 }

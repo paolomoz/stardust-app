@@ -218,6 +218,16 @@ export default {
 
     // Ingest: the sandbox agent uploads a deliverable. -> R2 + notify the DO.
     const artMatch = path.match(INGEST_ARTIFACT);
+    // Token-authed download (the iterate container restores run inputs from R2).
+    if (artMatch && request.method === "GET") {
+      const runId = artMatch[1];
+      if (!(await ingestAuthed(env, runId, request))) return new Response("Unauthorized", { status: 401 });
+      const object = await env.BUCKET.get(`artifacts/${runId}/${artMatch[2]}`);
+      if (!object) return new Response("Not found", { status: 404 });
+      const headers = new Headers();
+      object.writeHttpMetadata(headers);
+      return new Response(object.body, { headers });
+    }
     if (artMatch && (request.method === "PUT" || request.method === "POST")) {
       const runId = artMatch[1];
       const rel = artMatch[2];
