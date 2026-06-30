@@ -214,7 +214,9 @@ export class RunSession extends DurableObject<Env> {
     await this.emit({ t: "tasks.init", tasks });
     await this.emit({ t: "progress", value: 8 });
     await this.emit({ t: "status", text: STATUS_TICKER[0] });
+    await this.emit({ t: "busy", value: true });
     await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock: "⏱ ~ a few minutes · reading the site" } });
+    await this.emit({ t: "message.append", message: { id: "intro", role: "agent", lead: `On it — reading <b>${this.project}</b>, learning the brand, and composing directions.`, body: ["This normally takes a few minutes. I'll show the snapshot the moment it's ready."] } });
     await this.emit({ t: "screen", screen: "working" });
 
     let i = 0;
@@ -237,6 +239,7 @@ export class RunSession extends DurableObject<Env> {
     this.schedule(6000, async () => {
       await this.emit({ t: "task", id: "validate", status: "done" });
       await this.emit({ t: "progress", value: 100 });
+      await this.emit({ t: "busy", value: false });
       await this.emit({ t: "snapshot.ready" });
     });
     this.schedule(6800, () => this.toBrand());
@@ -408,7 +411,9 @@ export class RunSession extends DurableObject<Env> {
     await this.emit({ t: "phase", phase: "prototype" });
     await this.emit({ t: "tasks.init", tasks: this.tasks });
     await this.emit({ t: "progress", value: 5 });
+    await this.emit({ t: "busy", value: true });
     await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock } });
+    await this.emit({ t: "message.append", message: { id: "intro", role: "agent", lead: `On it — reading <b>${this.project}</b>, learning the brand, and composing directions.`, body: ["This normally takes a few minutes. I'll show the snapshot the moment it's ready."] } });
     await this.emit({ t: "screen", screen: "working" });
 
     const token = crypto.randomUUID().replace(/-/g, "");
@@ -467,7 +472,7 @@ export class RunSession extends DurableObject<Env> {
       return;
     }
     if (e.type === "tool") {
-      await this.emit({ t: "message.append", message: { id: `t-${this.seq}`, role: "agent", lead: `› ${e.name ?? "tool"}` } });
+      await this.emit({ t: "message.append", message: { id: `t-${this.seq}`, role: "agent", tool: e.name ?? "tool" } });
       return;
     }
 
@@ -475,6 +480,7 @@ export class RunSession extends DurableObject<Env> {
     // just report it and leave the variant usable; success hot-swaps the preview.
     if (e.phase === "iterate") {
       if (e.event === "failed") {
+        await this.emit({ t: "busy", value: false });
         await this.emit({ t: "message.append", message: { id: `iterr-${this.seq}`, role: "agent", lead: `Couldn't apply that change${e.message ? ` — ${e.message}` : ""}. The variant is unchanged — try rephrasing.` } });
         const card = this.realVariants?.variants.find((v) => v.id === this.activeVariant) ?? this.realVariants?.variants.slice(-1)[0];
         await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card?.segLabel ?? "—", clock: "⏱ ready to iterate" }) });
@@ -518,6 +524,7 @@ export class RunSession extends DurableObject<Env> {
       await this.persistResult();
       await advance("extract", "analyze", 58, "brand surface captured");
       await this.emit({ t: "message.append", message: { id: `brand-${this.seq}`, role: "agent", lead: "Brand surface captured — open the snapshot." } });
+      await this.emit({ t: "message.append", message: { id: "art-brand", role: "agent", artifact: { kind: "brand", label: "Brand review" } } });
       await this.emit({ t: "snapshot.ready" });
     } else if (e.phase === "direct" && e.event === "variants_ready") {
       this.realVariants = { sharedFixes: e.sharedFixes ?? [], variants: this.mapVariants(e.variants ?? []) };
@@ -531,6 +538,10 @@ export class RunSession extends DurableObject<Env> {
       await this.emit({ t: "tasks.init", tasks: this.tasks });
       await this.emit({ t: "status", text: `variant ${e.variant ?? ""} rendered` });
       await this.emit({ t: "progress", value: 88 });
+      if (e.variant) {
+        const vc = this.realVariants?.variants.find((v) => v.id === e.variant);
+        await this.emit({ t: "message.append", message: { id: `art-${e.variant}`, role: "agent", artifact: { kind: "variant", variant: e.variant as VariantId, label: `Variant ${e.variant}${vc ? ` — ${vc.segWord}` : ""}` } } });
+      }
     } else if (e.phase === "done") {
       if (this.finished) return;
       // Honest empty state: a real run that produced no variants (bot-wall /
@@ -547,6 +558,7 @@ export class RunSession extends DurableObject<Env> {
       await this.emit({ t: "progress", value: 100 });
       await this.emit({ t: "snapshot.ready" });
       await this.emit({ t: "message.append", message: { id: `done-${this.seq}`, role: "agent", lead: "✓ Done — three variants ready. Open the snapshot." } });
+      await this.emit({ t: "busy", value: false });
       await this.emit({ t: "run.done" });
       await this.env.DB.prepare("UPDATE runs SET status = 'done' WHERE id = ?").bind(this.runId).run();
     }
@@ -593,6 +605,7 @@ export class RunSession extends DurableObject<Env> {
     if (this.finished) return; // a completed/failed/canceled run is terminal
     this.finished = true;
     this.clearTimers();
+    await this.emit({ t: "busy", value: false });
     await this.emit({ t: "error", message: reason });
     await this.emit({ t: "run.done" });
     await this.env.DB.prepare("UPDATE runs SET status = 'error' WHERE id = ?").bind(this.runId).run();
@@ -610,6 +623,7 @@ export class RunSession extends DurableObject<Env> {
       await fetch(cancelUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: this.runId, token: row?.token }) });
     } catch { /* the run is marked canceled regardless */ }
     await this.emit({ t: "message.append", message: { id: `cx-${this.seq}`, role: "agent", lead: "Run canceled." } });
+    await this.emit({ t: "busy", value: false });
     await this.emit({ t: "error", message: "Run canceled." });
     await this.emit({ t: "run.done" });
     await this.env.DB.prepare("UPDATE runs SET status = 'canceled' WHERE id = ?").bind(this.runId).run();
@@ -637,7 +651,7 @@ export class RunSession extends DurableObject<Env> {
           },
           { id: "brand-tensions", role: "agent", plan: { tag: "3 tensions", steps: KNACK_TENSIONS } },
         ];
-    await this.emit({ t: "messages", messages });
+    for (const m of messages) await this.emit({ t: "message.append", message: m });
     await this.emit({ t: "panel.brand", brandReviewUrl: url, tensions });
     await this.emit({ t: "rail", rail: this.railState({ note: "brand surface captured", tensions: tensions.length, clock: "⏱ captured" }) });
     await this.emit({ t: "screen", screen: "brand" });
@@ -661,7 +675,7 @@ export class RunSession extends DurableObject<Env> {
             seed: KNACK_SEED,
           },
         ];
-    await this.emit({ t: "messages", messages });
+    for (const m of messages) await this.emit({ t: "message.append", message: m });
     await this.emit({ t: "panel.variants", sharedFixes, variants: cards });
     await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", tensions: sharedFixes.length, clock: "⏱ 3 directions ready" }) });
     await this.emit({ t: "screen", screen: "variants" });
@@ -681,7 +695,7 @@ export class RunSession extends DurableObject<Env> {
       },
     ];
     await this.emit({ t: "panel.workspace", activeVariant: id, variants: cards });
-    await this.emit({ t: "messages", messages });
+    for (const m of messages) await this.emit({ t: "message.append", message: m });
     await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card.segLabel, clock: "⏱ ready to iterate" }) });
     await this.emit({ t: "screen", screen: "workspace" });
     await this.env.DB.prepare("UPDATE runs SET status = 'done' WHERE id = ?").bind(this.runId).run();
@@ -736,6 +750,7 @@ export class RunSession extends DurableObject<Env> {
     const runner = this.env.RUNNER_URL ?? "http://localhost:8790/run";
 
     await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `On it — re-rendering variant <b>${card.id}</b>: ${text}` } });
+    await this.emit({ t: "busy", value: true });
     await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card.segLabel, busy: true, clock: `⏱ re-rendering ${card.id}` }) });
 
     try {
@@ -747,6 +762,7 @@ export class RunSession extends DurableObject<Env> {
       if (!res.ok) throw new Error(`runner ${res.status}`);
     } catch (e) {
       await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Couldn't start the re-render (${(e as Error).message}).` } });
+      await this.emit({ t: "busy", value: false });
       await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card.segLabel, clock: "⏱ ready to iterate" }) });
     }
   }
@@ -764,6 +780,7 @@ export class RunSession extends DurableObject<Env> {
     const active = (id as VariantId | undefined) ?? this.activeVariant ?? variants[variants.length - 1].id;
     const card = variants.find((c) => c.id === active) ?? variants[variants.length - 1];
     await this.emit({ t: "panel.workspace", activeVariant: active, variants });
+    await this.emit({ t: "busy", value: false });
     await this.emit({ t: "message.append", message: { id: `it-${this.seq}`, role: "agent", lead: `Done — re-rendered variant <b>${active}</b>. Switch variants or ask for another change.` } });
     await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card.segLabel, clock: "⏱ re-rendered" }) });
   }

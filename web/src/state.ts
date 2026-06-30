@@ -26,6 +26,14 @@ export interface Message {
   text?: string;         // user bubble text
   seed?: string;         // optional seed chip hash
   plan?: PlanBlock;
+  tool?: string;         // tool-activity row (run_bash, read_file…) — muted style
+  artifact?: ArtifactRef;// a clickable artifact card (opens on the right)
+}
+
+export interface ArtifactRef {
+  kind: "brand" | "variant";
+  label: string;         // "Brand review" | "Variant C — cinematic"
+  variant?: VariantId;   // for kind:"variant"
 }
 
 export interface PlanBlock {
@@ -80,6 +88,7 @@ export interface RunState {
   viewport: "desktop" | "mobile";
   rail: RailState;
   error?: string;             // set when a run fails/cancels — working screen shows it
+  agentBusy?: boolean;        // agent is working → show thinking dots in the chat
 }
 
 type Listener = (s: RunState) => void;
@@ -104,6 +113,7 @@ function initial(): RunState {
     viewport: "desktop",
     rail: { swatches: [] },
     error: undefined,
+    agentBusy: false,
   };
 }
 

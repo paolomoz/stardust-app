@@ -1,13 +1,12 @@
-/* Workspace — iterate the chosen variant. Real redesign iframed; A/B/C switch,
-   viewport toggle, and a conversation that drives changes. */
+/* Workspace — iterate the chosen variant. Real redesign iframed; A/B/C switch
+   and viewport toggle. The conversation column is the shared persistent panel
+   (main.ts re-parents it into .conv-mount). */
 import { h } from "../dom";
 import type { App, Screen } from "../controller";
 import type { RunState, VariantId } from "../state";
 import { topbar, rail, syncRail } from "../components/shell";
-import { convHead, composer, thread } from "../components/conversation";
 import { segSwitch, viewportToggle, openInTab, previewIframe } from "../components/preview";
-import { KNACK_SEED_NOTE } from "../data/knack";
-import { wireActions, wireComposer } from "./working";
+import { wireActions } from "./working";
 
 function activeCard(s: RunState) {
   return s.variants.find((v) => v.id === s.activeVariant) ?? s.variants[0];
@@ -21,11 +20,7 @@ export function workspace(state: RunState, app: App): Screen {
       { label: "Deploy", kind: "primary", to: "deploy", arrow: true },
     ])}
     <div class="middle">
-      <section class="conv" aria-label="conversation">
-        ${convHead(state.projectName, `<button class="btn-quiet" style="font-size:12.5px;color:var(--fg-dim)">History</button>`)}
-        ${thread(state.messages, KNACK_SEED_NOTE)}
-        ${composer("tell me a change…", `Try <span class="mono">"calmer comparison"</span> or <span class="mono">"more magenta"</span>.`)}
-      </section>
+      <section class="conv conv-mount" aria-label="conversation"></section>
       <section class="panel" aria-label="prototype preview">
         <div class="subheader">
           <div class="sub-left"><span class="eyebrow">prototype</span>${segSwitch(state.variants, state.activeVariant)}</div>
@@ -42,7 +37,6 @@ export function workspace(state: RunState, app: App): Screen {
   frame.dataset.src = cur.src;
 
   wireActions(el, app);
-  wireComposer(el, app, "workspace");
 
   // variant seg switch
   el.querySelectorAll<HTMLButtonElement>(".seg[data-variant-switch] button").forEach((b) =>
@@ -55,9 +49,6 @@ export function workspace(state: RunState, app: App): Screen {
   const update = (s: RunState) => {
     // footer rail (palette/clock) — re-render in place on state change
     syncRail(el, s.rail);
-    // conversation
-    const t = el.querySelector(".conv-thread");
-    if (t) t.outerHTML = thread(s.messages, KNACK_SEED_NOTE);
     // reload the iframe when the variant changes OR its src does (in-place
     // re-render after an iteration bumps src with a ?v= cache-buster)
     const card = activeCard(s);

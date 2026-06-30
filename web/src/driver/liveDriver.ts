@@ -54,7 +54,7 @@ function apply(ev: ServerEvent): void {
       break;
     case "message.append":
       store.update((s) => {
-        s.messages = [...s.messages, ev.message];
+        if (!s.messages.some((m) => m.id === ev.message.id)) s.messages = [...s.messages, ev.message];
       });
       break;
     case "panel.brand":
@@ -78,11 +78,15 @@ function apply(ev: ServerEvent): void {
     case "rail":
       store.set({ rail: ev.rail });
       break;
+    case "busy":
+      store.set({ agentBusy: ev.value });
+      break;
     case "run.done":
+      store.set({ agentBusy: false });
       break;
     case "error":
       console.error("[stardust] run error:", ev.message);
-      store.set({ error: ev.message });
+      store.set({ error: ev.message, agentBusy: false });
       break;
   }
 }

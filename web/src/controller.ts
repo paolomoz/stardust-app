@@ -1,6 +1,6 @@
 /* The action surface screens call. Implemented in main.ts; kept separate to
    avoid a circular import between screens and the entry point. */
-import type { RunState, ScreenId, VariantId } from "./state";
+import type { ArtifactRef, RunState, ScreenId, VariantId } from "./state";
 
 /** A mounted screen. `update` lets the screen patch itself in place on state
  *  changes (task stream ticking, iframe hot-swap) without a full re-render that
@@ -31,4 +31,7 @@ export interface App {
   setViewport(v: "desktop" | "mobile"): void;
   /** Composer submit on a given screen. */
   send(screen: ScreenId, text: string): void;
+  /** Open an artifact card from the chat on the right (brand → brand screen,
+   *  variant → workspace with that variant). */
+  openArtifact(a: ArtifactRef): void;
 }

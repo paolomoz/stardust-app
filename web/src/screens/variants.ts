@@ -3,9 +3,7 @@ import { h, esc } from "../dom";
 import type { App, Screen } from "../controller";
 import type { RunState, VariantCard } from "../state";
 import { topbar, rail, syncRail } from "../components/shell";
-import { convHead, composer, thread } from "../components/conversation";
-import { KNACK_SEED_NOTE } from "../data/knack";
-import { wireActions, wireComposer } from "./working";
+import { wireActions } from "./working";
 
 function card(v: VariantCard): string {
   const moves = v.moves?.length
@@ -41,11 +39,7 @@ export function variants(state: RunState, app: App): Screen {
       { label: "Open variant C", kind: "primary", to: "open-C", arrow: true },
     ])}
     <div class="middle">
-      <section class="conv" aria-label="conversation">
-        ${convHead(state.projectName)}
-        ${thread(state.messages, KNACK_SEED_NOTE)}
-        ${composer("ask for another direction…", `Try <span class="mono">"a calmer option"</span> or <span class="mono">"go bolder than C"</span>.`)}
-      </section>
+      <section class="conv conv-mount" aria-label="conversation"></section>
       <section class="panel" aria-label="directions">
         <div class="subheader">
           <div class="sub-left"><span class="eyebrow">directions</span><span style="font-size:13px;color:var(--fg-dim)">3 variants · brand-faithful</span></div>
@@ -66,15 +60,12 @@ export function variants(state: RunState, app: App): Screen {
   </div>`);
 
   wireActions(el, app);
-  wireComposer(el, app, "variants");
   el.querySelectorAll<HTMLElement>(".vcard[data-variant]").forEach((c) =>
     c.addEventListener("click", () => app.openVariant(c.getAttribute("data-variant") as VariantCard["id"])),
   );
 
   const update = (s: RunState) => {
     syncRail(el, s.rail);
-    const t = el.querySelector(".conv-thread");
-    if (t) t.outerHTML = thread(s.messages, KNACK_SEED_NOTE);
   };
   return { el, update };
 }

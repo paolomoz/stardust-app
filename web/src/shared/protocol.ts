@@ -31,6 +31,7 @@ export type ServerEvent =
   | { t: "panel.variants"; sharedFixes: string[]; variants: VariantCard[] }
   | { t: "panel.workspace"; activeVariant: VariantId; variants: VariantCard[] }
   | { t: "rail"; rail: RailState }
+  | { t: "busy"; value: boolean }       // agent working ↔ idle (drives the chat thinking dots)
   | { t: "run.done" }
   | { t: "error"; message: string };
 

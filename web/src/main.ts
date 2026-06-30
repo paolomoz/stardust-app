@@ -11,6 +11,8 @@ import { working } from "./screens/working";
 import { brand } from "./screens/brand";
 import { variants } from "./screens/variants";
 import { workspace } from "./screens/workspace";
+import { createConversation } from "./components/conversation";
+import type { ArtifactRef } from "./state";
 import { beginRun, navTo, openVariant, selectVariant, cancelRun, sendMessage, resetRun, reopenRun } from "./driver/liveDriver";
 
 // Dev affordance: /?mode=agent runs a real Managed Agents session;
@@ -40,6 +42,10 @@ const app: App = {
   },
   setViewport: (v) => store.set({ viewport: v }),
   send: (screen: ScreenId, text) => sendMessage(screen, text),
+  openArtifact: (a: ArtifactRef) => {
+    if (a.kind === "brand") navTo("brand");
+    else if (a.variant) openVariant(a.variant);
+  },
 };
 
 const factories: Record<ScreenId, (s: RunState, a: App) => Screen | HTMLElement> = {
@@ -54,14 +60,23 @@ const root = document.getElementById("root")!;
 let mountedScreen: ScreenId | null = null;
 let current: Screen | null = null;
 
+// One persistent conversation panel, re-parented into each in-app screen so the
+// chat (content + scroll) is identical across working/brand/variants/workspace.
+const conversation = createConversation(app);
+
 function asScreen(r: Screen | HTMLElement): Screen {
   return r instanceof HTMLElement ? { el: r } : r;
 }
 
 function render(s: RunState): void {
   if (s.screen !== mountedScreen) {
+    const prevTop = conversation.scroller.scrollTop;
     current = asScreen(factories[s.screen](s, app));
+    // Re-parent the persistent chat into the new screen's slot (if it has one).
+    const slot = current.el.querySelector(".conv-mount");
+    if (slot) slot.replaceWith(conversation.el);
     root.replaceChildren(current.el);
+    if (slot) conversation.scroller.scrollTop = prevTop; // restore once re-attached
     mountedScreen = s.screen;
     // (re)trigger fade/stagger reveals on the freshly mounted screen
     document.body.classList.remove("ready");
@@ -72,6 +87,7 @@ function render(s: RunState): void {
 }
 
 store.subscribe(render);
+store.subscribe((s) => conversation.update(s));
 render(store.get());
 
 // /?run=<id> — reopen a finished run (replays its saved timeline; no new run).
