@@ -21,6 +21,9 @@ export interface App {
   openVariant(id: VariantId): void;
   /** Jump directly to a screen (back buttons). */
   goto(screen: ScreenId): void;
+  /** Client-side view navigation (header ladder / subheader tabs). Sets the
+   *  screen instantly, locks it against DO screen events, and syncs the URL. */
+  goView(screen: ScreenId): void;
   /** Reset everything to the landing screen. */
   restart(): void;
   /** Stop an in-flight run (Stop button on the working screen). */

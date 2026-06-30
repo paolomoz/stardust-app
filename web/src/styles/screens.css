@@ -142,3 +142,22 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* --- Overview board (the four-phase journey) --- */
+.boardwrap { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
+.board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.bcol { display: flex; flex-direction: column; gap: 9px; padding: 12px; border: 1px solid var(--hairline-soft); border-radius: 13px; background: var(--bg); }
+.bcol.active { background: var(--surface); box-shadow: 0 8px 28px -18px rgba(26,31,56,0.25); }
+.bcol.future { opacity: .62; }
+.bhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 2px 2px 8px; border-bottom: 1px solid var(--hairline-soft); }
+.bhx { min-width: 0; }
+.btitle { font: 600 14px/1.1 var(--display); color: var(--fg); }
+.bsub { font: 500 11px/1 var(--mono); color: var(--fg-faint); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bbadge { font: 600 9px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); border: 1px solid var(--hairline-soft); border-radius: 5px; padding: 3px 6px; flex: none; }
+.bbadge.run { color: var(--amber-deep); border-color: rgba(201,130,45,0.4); background: rgba(232,185,94,0.14); }
+.bbadge.done { color: var(--success); border-color: rgba(45,140,90,0.35); }
+.brows { display: flex; flex-direction: column; gap: 7px; }
+.bempty { font: 500 12px/1 var(--mono); color: var(--fg-faint); padding: 8px 2px; }
+.berror { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 20px; margin-bottom: 14px; border: 1px solid var(--hairline-soft); border-radius: 13px; background: var(--surface); }
+.berror .errmark { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(180,69,47,0.12); color: var(--danger, #b4452f); font-weight: 700; }
+.berror .errmsg { color: var(--fg-dim); font-size: 13px; }

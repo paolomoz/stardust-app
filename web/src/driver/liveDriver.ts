@@ -11,6 +11,11 @@ import { isServerEvent } from "../shared/protocol";
 
 let ws: WebSocket | null = null;
 
+// Once the user (or a /?view= URL) picks a view, the client owns navigation —
+// ignore the DO's own `screen` events so they can't yank the view back.
+let viewLocked = false;
+export function lockView(): void { viewLocked = true; }
+
 function wsUrl(id: string): string {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   return `${proto}//${location.host}/api/runs/${id}/ws`;
@@ -29,7 +34,7 @@ function apply(ev: ServerEvent): void {
       store.set({ phase: ev.phase });
       break;
     case "screen":
-      store.set({ screen: ev.screen });
+      if (!viewLocked) store.set({ screen: ev.screen });
       break;
     case "tasks.init":
       store.set({ tasks: ev.tasks });
@@ -195,5 +200,6 @@ export function resetRun(): void {
     ws.close();
     ws = null;
   }
+  viewLocked = false;
   store.reset();
 }

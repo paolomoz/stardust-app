@@ -2,22 +2,19 @@
 import { h, esc } from "../dom";
 import type { App, Screen } from "../controller";
 import type { RunState } from "../state";
-import { topbar, rail, syncRail } from "../components/shell";
+import { topbar, viewTabs, rail, syncRail } from "../components/shell";
 import { openInTab } from "../components/preview";
 import { search } from "../components/icons";
 import { wireActions } from "./working";
 
 export function brand(state: RunState, app: App): Screen {
   const el = h(`<div class="app">
-    ${topbar(state.phase, [
-      { label: "← Back", kind: "quiet", to: "back-working" },
-      { label: "See directions", kind: "primary", to: "variants", arrow: true },
-    ])}
+    ${topbar(state, [])}
     <div class="middle">
       <section class="conv conv-mount" aria-label="conversation"></section>
       <section class="panel" aria-label="brand review">
         <div class="subheader">
-          <div class="sub-left"><span class="eyebrow">brand review</span><span style="font-size:13px;color:var(--fg-dim)">${esc(state.projectName)}</span></div>
+          <div class="sub-left">${viewTabs(state)}</div>
           <div class="sub-right">
             <button class="auditbtn">${search} Run audit</button>
             ${openInTab(state.brandReviewUrl)}
@@ -33,6 +30,8 @@ export function brand(state: RunState, app: App): Screen {
 
   const update = (s: RunState) => {
     syncRail(el, s.rail);
+    const tabs = el.querySelector<HTMLElement>(".sub-left");
+    if (tabs) tabs.innerHTML = viewTabs(s);
   };
   return { el, update };
 }

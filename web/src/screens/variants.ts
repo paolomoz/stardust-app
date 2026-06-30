@@ -2,7 +2,7 @@
 import { h, esc } from "../dom";
 import type { App, Screen } from "../controller";
 import type { RunState, VariantCard } from "../state";
-import { topbar, rail, syncRail } from "../components/shell";
+import { topbar, viewTabs, rail, syncRail } from "../components/shell";
 import { wireActions } from "./working";
 
 function card(v: VariantCard): string {
@@ -34,16 +34,13 @@ export function variants(state: RunState, app: App): Screen {
     .map((f) => `<span class="fixchip"><span class="ck">✓</span> ${f}</span>`)
     .join("");
   const el = h(`<div class="app">
-    ${topbar(state.phase, [
-      { label: "← Back", kind: "quiet", to: "back-brand" },
-      { label: "Open variant C", kind: "primary", to: "open-C", arrow: true },
-    ])}
+    ${topbar(state, [])}
     <div class="middle">
       <section class="conv conv-mount" aria-label="conversation"></section>
       <section class="panel" aria-label="directions">
         <div class="subheader">
-          <div class="sub-left"><span class="eyebrow">directions</span><span style="font-size:13px;color:var(--fg-dim)">3 variants · brand-faithful</span></div>
-          <div class="sub-right"><span style="font:500 12px/1 var(--mono);color:var(--fg-faint)">click to iterate</span></div>
+          <div class="sub-left">${viewTabs(state)}</div>
+          <div class="sub-right"><span style="font:500 12px/1 var(--mono);color:var(--fg-faint)">click a card to iterate</span></div>
         </div>
         <div class="cardbody">
           <div class="galwrap">
@@ -66,6 +63,8 @@ export function variants(state: RunState, app: App): Screen {
 
   const update = (s: RunState) => {
     syncRail(el, s.rail);
+    const tabs = el.querySelector<HTMLElement>(".sub-left");
+    if (tabs) tabs.innerHTML = viewTabs(s);
   };
   return { el, update };
 }

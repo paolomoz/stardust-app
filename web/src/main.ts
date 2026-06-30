@@ -16,7 +16,7 @@ import { mountToasts } from "./components/toasts";
 import { login } from "./screens/login";
 import { fetchMe } from "./auth";
 import type { ArtifactRef } from "./state";
-import { beginRun, navTo, openVariant, selectVariant, cancelRun, sendMessage, resetRun, reopenRun } from "./driver/liveDriver";
+import { beginRun, selectVariant, cancelRun, sendMessage, resetRun, reopenRun, lockView } from "./driver/liveDriver";
 
 // Default (no param) = a real Opus-on-Bedrock run. Opt into others by param:
 //   ?mode=demo     — scripted offline demo (free, replays the knack sample)
@@ -31,13 +31,45 @@ const runMode =
   : _mode === "probe" ? "probe"
   : "bedrock";
 
+/** Reflect the active run + current view in the URL (bookmarkable, reload-safe).
+ *  /?run=<id>[&view=<screen>] — view omitted for the default Overview. Preserves
+ *  any ?mode=. Uses replaceState (no history spam). */
+function syncUrl(): void {
+  const s = store.get();
+  const u = new URL(location.href);
+  if (!s.runId || s.screen === "landing") {
+    u.searchParams.delete("run");
+    u.searchParams.delete("view");
+  } else {
+    u.searchParams.set("run", s.runId);
+    if (s.screen && s.screen !== "working") u.searchParams.set("view", s.screen);
+    else u.searchParams.delete("view");
+  }
+  const next = u.pathname + (u.search ? u.search : "");
+  if (next !== location.pathname + location.search) history.replaceState(null, "", next);
+}
+
+/** Client-side view nav: instant, locks against DO screen events, syncs the URL. */
+function goView(screen: ScreenId): void {
+  lockView();
+  if (screen === "workspace") {
+    const id = store.get().activeVariant ?? "C";
+    store.set({ screen: "workspace", activeVariant: id });
+    selectVariant(id);
+  } else {
+    store.set({ screen });
+  }
+  syncUrl();
+}
+
 const app: App = {
   start: (url) => void beginRun(url, runMode),
-  goSnapshot: () => navTo("brand"),
-  goVariants: () => navTo("variants"),
-  openVariant: (id) => openVariant(id),
-  goto: (screen) => navTo(screen),
-  restart: () => resetRun(),
+  goSnapshot: () => goView("brand"),
+  goVariants: () => goView("variants"),
+  openVariant: (id) => { lockView(); store.set({ activeVariant: id, screen: "workspace" }); selectVariant(id); syncUrl(); },
+  goto: (screen) => goView(screen),
+  goView,
+  restart: () => { resetRun(); history.replaceState(null, "", location.pathname); },
   cancel: () => cancelRun(),
   setVariant: (id: VariantId) => {
     store.set({ activeVariant: id });
@@ -46,8 +78,8 @@ const app: App = {
   setViewport: (v) => store.set({ viewport: v }),
   send: (screen: ScreenId, text) => sendMessage(screen, text),
   openArtifact: (a: ArtifactRef) => {
-    if (a.kind === "brand") navTo("brand");
-    else if (a.variant) openVariant(a.variant);
+    if (a.kind === "brand") goView("brand");
+    else if (a.variant) app.openVariant(a.variant);
   },
 };
 
@@ -101,9 +133,17 @@ async function boot(): Promise<void> {
   }
   store.subscribe(render);
   store.subscribe((s) => conversation.update(s));
+  store.subscribe(syncUrl);
   render(store.get());
-  // /?run=<id> — reopen a finished run (replays its saved timeline; no new run).
-  const reopenId = new URLSearchParams(location.search).get("run");
-  if (reopenId) reopenRun(reopenId);
+  // /?run=<id>[&view=<screen>] — reopen a run (replays its saved timeline; no
+  // new run) and restore the view. A pinned &view locks the client view so the
+  // replayed screen events don't override the bookmark.
+  const params = new URLSearchParams(location.search);
+  const reopenId = params.get("run");
+  const view = params.get("view") as ScreenId | null;
+  if (reopenId) {
+    reopenRun(reopenId);
+    if (view) { lockView(); store.set({ screen: view }); }
+  }
 }
 void boot();

@@ -278,3 +278,22 @@ body.ready .stagger > * { animation-play-state: running; }
   .fade, body.leaving { transition: none; }
   .stagger > * { animation: none; opacity: 1; }
 }
+
+/* --- macro nav (header): clickable brand + project + journey ladder --- */
+.brandlink { display: inline-flex; align-items: center; gap: 11px; background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: inherit; }
+.brand .site { background: none; border: 0; padding: 0; cursor: pointer; color: var(--on-dark-dim); font: 500 14px/1 var(--text); }
+.brand .site:hover { color: var(--on-dark); }
+.brand .site .redesign { color: var(--on-dark-faint); }
+.ladder .rung { background: none; border: 0; cursor: pointer; font: inherit; }
+.ladder .rung.active { cursor: pointer; }
+.ladder .rung.future { cursor: default; }
+.ladder .rung.future .pip { background: var(--on-dark-line); }
+.ladder .rung.future .lbl { color: var(--on-dark-faint); opacity: .7; }
+.ladder .rung[disabled] { cursor: default; }
+
+/* --- micro nav (subheader): view tabs --- */
+.seg.tabs button { padding: 5px 12px; }
+.seg.tabs button[disabled] { opacity: .38; pointer-events: none; }
+.subheader .segdiv { width: 1px; height: 20px; background: var(--hairline-soft); margin: 0 2px; }
+.donetag { font: 500 12px/1 var(--mono); color: var(--success); }
+.donetag.err { color: var(--danger, #b4452f); }

@@ -274,7 +274,16 @@ export class RunSession extends DurableObject<Env> {
       await this.emit({ t: "busy", value: false });
       await this.emit({ t: "snapshot.ready" });
     });
-    this.schedule(6800, () => this.toBrand());
+    // Stream brand → directions → workspace. Each of these calls clearTimers(),
+    // so chain the next only after the previous has run (matches how real runs
+    // emit panel.brand/variants eagerly; lets the Overview tabs light up).
+    this.schedule(6800, async () => {
+      await this.toBrand();
+      this.schedule(1000, async () => {
+        await this.toVariants();
+        this.schedule(1000, () => this.toWorkspace("C"));
+      });
+    });
   }
 
   /* ---- M3+ real run: a Managed Agents session, streamed to the UI ---- */

@@ -229,8 +229,9 @@ export function createConversation(app: App): Conversation {
     paintEta();
     projEl.textContent = s.projectName || "—";
 
-    // Pinned tasks during the working phase only.
-    const showTasks = s.tasks.length > 0 && !s.snapshotReady;
+    // Pinned tasks moved to the Overview board (the uplift column); keep the
+    // chat focused on narration. Left here (disabled) for easy revert.
+    const showTasks = false && s.tasks.length > 0 && !s.snapshotReady;
     tasksEl.hidden = !showTasks;
     if (showTasks) {
       const rows = tasksEl.querySelectorAll(".task");

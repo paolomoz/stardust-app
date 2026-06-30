@@ -1,6 +1,8 @@
-/* Shared shell pieces: topbar (brand + ladder + actions) and footer rail. */
+/* Shared shell pieces: topbar (macro nav: brand → root, project → board, the
+   4-rung journey ladder, context actions) + the right-panel view tabs (micro nav)
+   + the ambient footer rail. See NAVIGATION.md. */
 import { esc } from "../dom";
-import type { Phase, RailState } from "../state";
+import type { RunState, RailState, ScreenId } from "../state";
 import { starHeader } from "./icons";
 import { userChip } from "../auth";
 
@@ -13,18 +15,47 @@ export interface TopbarAction {
   id?: string;
 }
 
-export function topbar(phase: Phase, actions: TopbarAction[]): string {
-  const rung = (lbl: string, p: Phase) =>
-    `<div class="rung ${phase === p ? "active" : ""}"><span class="pip"></span><span class="lbl">${lbl}</span></div>`;
+// The macro journey ladder. Only "uplift" is built today; the rest are future.
+const PHASES: { id: string; label: string }[] = [
+  { id: "uplift", label: "uplift" },
+  { id: "prototype", label: "prototype" },
+  { id: "deploy", label: "deploy" },
+  { id: "rollout", label: "rollout" },
+];
+
+export function topbar(state: RunState, actions: TopbarAction[]): string {
+  const inRun = !!state.projectName;
+  const rung = (p: { id: string; label: string }) => {
+    const active = p.id === "uplift"; // current phase (v1 builds only uplift)
+    const cls = active ? "rung active" : "rung future";
+    return `<button class="${cls}"${active ? ` data-act="dashboard"` : " disabled"}><span class="pip"></span><span class="lbl">${esc(p.label)}</span></button>`;
+  };
   const btn = (a: TopbarAction) =>
     `<button class="btn ${a.kind === "primary" ? "btn-primary" : "btn-quiet"}"${a.id ? ` id="${a.id}"` : ""}${a.to ? ` data-act="${a.to}"` : ""}${a.disabled ? " disabled" : ""}>${esc(a.label)}${a.arrow ? ' <span class="arr">→</span>' : ""}</button>`;
   return `<header class="topbar">
-    <div class="brand">${starHeader}<span class="name"><b>stardust</b></span></div>
-    <nav class="ladder" aria-label="progress">${rung("prototype", "prototype")}${rung("deploy", "deploy")}</nav>
+    <div class="brand">
+      <button class="brandlink" data-act="root" aria-label="stardust — your runs">${starHeader}<span class="name"><b>stardust</b></span></button>
+      ${inRun ? `<span class="dot">·</span><button class="site brandlink" data-act="dashboard">${esc(state.projectName)} <span class="redesign">redesign</span></button>` : ""}
+    </div>
+    ${inRun ? `<nav class="ladder" aria-label="phases">${PHASES.map(rung).join("")}</nav>` : ""}
     <div class="spacer"></div>
     ${actions.map(btn).join("")}
     ${userChip()}
   </header>`;
+}
+
+/** The within-phase view switcher (right-panel subheader, sub-left). Tabs enable
+ *  as their data becomes ready; the active tab tracks state.screen. */
+export function viewTabs(state: RunState): string {
+  const ready: Record<string, boolean> = {
+    working: true,
+    brand: !!state.brandReviewUrl,
+    variants: state.variants.length > 0,
+    workspace: state.variants.length > 0,
+  };
+  const tab = (id: ScreenId, label: string) =>
+    `<button class="${state.screen === id ? "on" : ""}" data-act="view-${id}"${ready[id] ? "" : " disabled"}>${esc(label)}</button>`;
+  return `<div class="seg tabs" role="group" aria-label="views">${tab("working", "Overview")}${tab("brand", "Brand")}${tab("variants", "Directions")}${tab("workspace", "Workspace")}</div>`;
 }
 
 export function rail(r: RailState): string {
