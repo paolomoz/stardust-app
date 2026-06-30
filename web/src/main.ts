@@ -66,7 +66,12 @@ const app: App = {
   start: (url) => void beginRun(url, runMode),
   goSnapshot: () => goView("brand"),
   goVariants: () => goView("variants"),
-  openVariant: (id) => { lockView(); store.set({ activeVariant: id, screen: "workspace" }); selectVariant(id); syncUrl(); },
+  openVariant: (id) => {
+    // If the gallery isn't populated yet, show Directions rather than a blank
+    // Workspace (defensive — panel.variants normally lands before the chips).
+    if (!store.get().variants.some((v) => v.id === id)) { goView("variants"); return; }
+    lockView(); store.set({ activeVariant: id, screen: "workspace" }); selectVariant(id); syncUrl();
+  },
   goto: (screen) => goView(screen),
   goView,
   // Enter the uplift phase (its views) from the header rung — land on the

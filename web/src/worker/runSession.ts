@@ -87,8 +87,8 @@ export class RunSession extends DurableObject<Env> {
     if (!this.started) {
       this.started = true;
       this.runId = runId;
-      // Reopen of a finished run (/?run=<id>): the DO is cold, so rehydrate its
-      // timeline + result from D1 and replay — do NOT start a new (paid) run.
+      // Cold start: load the persisted timeline + result. No events → a fresh run
+      // (kick it off); otherwise a reopen (replay only, no new paid run).
       const persisted = await this.env.DB.prepare(
         "SELECT payload FROM run_events WHERE run_id = ? ORDER BY seq",
       )
@@ -108,22 +108,25 @@ export class RunSession extends DurableObject<Env> {
         // row and the INSERT throws, aborting the command after the WS broadcast.
         this.seq = rows.length;
         await this.rehydrateResult(runId);
-        for (const ev of this.events) server.send(JSON.stringify(ev));
-        // Stored rail events carry swatches baked in at run time (KNACK demo for
-        // older runs). If we know the real palette, resend the last rail with it
-        // corrected — display-only, not persisted.
-        if (this.realPalette?.length) {
-          const lastRail = [...this.events].reverse().find((ev) => ev.t === "rail");
-          if (lastRail && lastRail.t === "rail") {
-            server.send(JSON.stringify({ t: "rail", rail: { ...lastRail.rail, swatches: this.realPalette } }));
-          }
-        }
       } else {
         void this.start(runId);
       }
-    } else {
-      // Reconnect to an active run: catch up with everything emitted so far.
-      for (const ev of this.events) server.send(JSON.stringify(ev));
+    }
+
+    // Bring THIS socket up to date — covers a cold reopen AND a reconnect to a
+    // warm DO. Replay the timeline, then (re)send the panel data from the
+    // rehydrated/live result: run_events may not carry panel.* under client-owned
+    // nav, so the Brand/Directions/Workspace views need it pushed explicitly.
+    for (const ev of this.events) server.send(JSON.stringify(ev));
+    if (this.realBrand) server.send(JSON.stringify({ t: "panel.brand", brandReviewUrl: this.realBrand.brandReviewUrl, tensions: this.realBrand.tensions }));
+    if (this.realVariants?.variants?.length) server.send(JSON.stringify({ t: "panel.variants", sharedFixes: this.realVariants.sharedFixes, variants: this.realVariants.variants }));
+    // Stored rail events bake in run-time swatches; if we know the real palette,
+    // resend the last rail corrected (display-only, not persisted).
+    if (this.realPalette?.length) {
+      const lastRail = [...this.events].reverse().find((ev) => ev.t === "rail");
+      if (lastRail && lastRail.t === "rail") {
+        server.send(JSON.stringify({ t: "rail", rail: { ...lastRail.rail, swatches: this.realPalette } }));
+      }
     }
 
     server.addEventListener("message", (e) => {
@@ -611,6 +614,9 @@ export class RunSession extends DurableObject<Env> {
       this.realBrand = { brandReviewUrl: this.art(e.brandReview ?? "brand-review.html"), tensions: this.realTensions };
       if (Array.isArray(e.palette) && e.palette.length) this.realPalette = e.palette.slice(0, 6);
       await this.persistResult();
+      // Push the brand panel eagerly so the Brand view/tab populates live (the
+      // client owns nav now and no longer sends a nav command to pull it).
+      await this.emit({ t: "panel.brand", brandReviewUrl: this.realBrand.brandReviewUrl, tensions: this.realBrand.tensions });
       await advance("extract", "analyze", 58, "brand surface captured");
       await this.emit({ t: "message.append", message: { id: `brand-${this.seq}`, role: "agent", lead: "Brand surface captured — open the snapshot." } });
       await this.emit({ t: "message.append", message: { id: "art-brand", role: "agent", artifact: { kind: "brand", label: "Brand review" } } });
@@ -620,6 +626,9 @@ export class RunSession extends DurableObject<Env> {
       const ids = this.realVariants.variants.map((v) => v.id).join(" · ");
       set("generate", undefined, ids || "3 directions");
       await this.persistResult();
+      // Push the variants gallery eagerly so the Directions/Workspace tabs enable
+      // and variant chips open (the client no longer pulls it via a nav command).
+      await this.emit({ t: "panel.variants", sharedFixes: this.realVariants.sharedFixes, variants: this.realVariants.variants });
       await advance("analyze", "generate", 74, "three directions composed");
       await this.emit({ t: "message.append", message: { id: `var-${this.seq}`, role: "agent", lead: "Three directions ready." } });
     } else if (e.phase === "prototype" && e.event === "variant_done") {
