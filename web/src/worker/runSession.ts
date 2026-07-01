@@ -714,7 +714,17 @@ export class RunSession extends DurableObject<Env> {
         await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card?.segLabel ?? "—", clock: "⏱ ready to iterate" }) });
         return;
       }
-      if (!this.iterating) return; // already completed on artifact arrival (dedupe)
+      if (e.event === "answer") {
+        // A question, not a change — the answer already streamed as narration.
+        // Just clear the spinner; no hot-swap, no duration recorded.
+        this.iterating = false;
+        this.iterateStart = 0;
+        await this.emit({ t: "busy", value: false });
+        const card = this.realVariants?.variants.find((v) => v.id === this.activeVariant) ?? this.realVariants?.variants.slice(-1)[0];
+        await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card?.segLabel ?? "—", clock: "⏱ ready to iterate" }) });
+        return;
+      }
+      if (!this.iterating) return; // change already completed on artifact arrival (dedupe)
       this.iterating = false;
       await this.hotSwapVariant(e.variant, e.file);
       return;
@@ -1029,7 +1039,7 @@ export class RunSession extends DurableObject<Env> {
       return;
     }
 
-    await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `On it — re-rendering variant **${card.id}**: ${text}` } });
+    await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `On it — variant **${card.id}**: ${text}` } });
     await this.emit({ t: "busy", value: true });
     this.iterateStart = Date.now();
     // Pooled-median iterate ETA (LLM-free), anchored at the iterate start.

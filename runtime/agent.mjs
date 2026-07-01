@@ -57,16 +57,15 @@ const upliftTask =
     `Emit each milestone (emit_milestone) the instant it happens and upload each deliverable (upload_artifact) as soon as it exists.`;
 
 const iterateTask =
-  `ITERATION, not a full run. A redesign already exists in this sandbox: the persisted workspace is at /workspace/stardust and the deliverables are in ${outputsDir}. ` +
-  `The director wants ONE change to variant ${variantId} (the file ${outputsDir}/${variantFile}): "${instruction}". ` +
-  `Apply it surgically — read the existing ${variantFile}, make exactly the requested change while keeping the brand palette, type, and one canonical CTA intact, and change nothing else. ` +
-  `Do this through impeccable, not by hand: pick the matching impeccable command for the request (e.g. colorize, typeset, polish, motion, or a targeted craft edit), read its reference/<command>.md, and follow that flow. ` +
-  `Do NOT re-run extract or direct, and do NOT touch the other variants. ` +
-  `Then inspect the result in the browser (Playwright screenshot) to confirm it renders and the change landed, write the updated ${variantFile} back to ${outputsDir} (plus any new assets), and upload_artifact each changed path. ` +
-  `Finally call emit_milestone(phase="iterate", event="done", data={"variant":"${variantId}","file":"${variantFile}"}) — that is the LAST thing you do.`;
+  `You are in an ongoing session for variant ${variantId} of an existing redesign (its file is ${outputsDir}/${variantFile}; the persisted workspace is /workspace/stardust, deliverables in ${outputsDir}). ` +
+  `The director says: "${instruction}". ` +
+  `FIRST classify the intent, then do exactly ONE of the following:\n` +
+  `• QUESTION or comment (asking what you did, why, what you know, for an opinion/explanation, etc.): just ANSWER directly and conversationally from your knowledge + the persisted context (state.json, direction.md, PRODUCT/DESIGN, the variant file). Do NOT edit or upload any file. Finish with emit_milestone(phase="iterate", event="answer").\n` +
+  `• CHANGE request: apply it surgically to ${variantFile} — read the file, make exactly the requested change while keeping the brand palette, type, and one canonical CTA intact, and change nothing else. Do it through impeccable (pick the matching command — colorize, typeset, polish, motion, or a targeted craft edit — read its reference/<command>.md, follow it). Do NOT re-run extract or direct, and do NOT touch other variants. Then inspect in the browser (Playwright screenshot), write ${variantFile} back to ${outputsDir} + upload_artifact each changed path, and finish with emit_milestone(phase="iterate", event="done", data={"variant":"${variantId}","file":"${variantFile}"}).\n` +
+  `That milestone call is the LAST thing you do. When unsure, prefer answering — NEVER edit the page just to respond to a question.`;
 
 const task = iterate ? iterateTask : upliftTask;
-const iterateHint = `Finish the requested change to variant ${variantId}, upload the updated ${variantFile}, then call emit_milestone with phase "iterate" and event "done".`;
+const iterateHint = `Finish now: if it was a question, answer it and call emit_milestone(phase="iterate", event="answer"); if a change, upload the updated ${variantFile} and call emit_milestone(phase="iterate", event="done").`;
 
 // Per-variant conversation, persisted to R2 so iterations have memory across
 // prompts. When it exists, continue it by appending this instruction as a follow-
@@ -74,10 +73,11 @@ const iterateHint = `Finish the requested change to variant ${variantId}, upload
 // refine); the first iteration seeds it via iterateTask and we persist the result.
 const SESSION_KEY = `_sessions/${variantId}.json`;
 const iterateFollowup =
-  `Another change to the SAME variant ${variantId} (${outputsDir}/${variantFile}): "${instruction}". ` +
-  `You have the full prior conversation above — use it to reason about earlier changes (e.g. to undo or refine one) instead of re-deriving. ` +
-  `Same rules: apply surgically through impeccable, keep the brand palette, type, and one canonical CTA intact, change nothing else; ` +
-  `inspect in the browser, write the updated ${variantFile} back to ${outputsDir} + upload_artifact each changed path, then call emit_milestone(phase="iterate", event="done", data={"variant":"${variantId}","file":"${variantFile}"}) as the LAST step.`;
+  `The director says: "${instruction}". You have the full prior conversation above — use it. ` +
+  `Classify the intent and do exactly ONE:\n` +
+  `• QUESTION/comment → ANSWER directly from the conversation + context; edit and upload nothing; finish with emit_milestone(phase="iterate", event="answer").\n` +
+  `• CHANGE → apply it surgically to ${variantFile} (keep brand palette, type, and one canonical CTA intact, change nothing else, through impeccable; reason about earlier turns for undo/refine), inspect in the browser, upload the updated file, and finish with emit_milestone(phase="iterate", event="done", data={"variant":"${variantId}","file":"${variantFile}"}).\n` +
+  `That milestone is the LAST thing you do. When unsure, prefer answering — NEVER edit the page just to answer a question.`;
 let initialMessages;
 
 // The design context an iteration needs (impeccable reads these). Snapshotted to
@@ -106,7 +106,7 @@ if (iterate && !env.IMPECCABLE_CONTEXT_DIR) {
 
 try {
   await ingest.event({ type: "narration", text: iterate
-    ? `${provider.name} ${provider.model} — re-rendering variant ${variantId}: ${instruction}`
+    ? `${provider.name} ${provider.model} — variant ${variantId}: ${instruction}`
     : `${provider.name} ${provider.model} — starting${url ? ` uplift of ${url}` : ""}.` });
   const { usage, done, steps } = await runLoop({
     provider,
@@ -121,13 +121,15 @@ try {
   });
   // Persist the updated per-variant conversation so the next prompt has memory.
   if (iterate) await ingest.uploadJSON(SESSION_KEY, steps).catch(() => {});
-  // Always emit the terminal milestone at clean exit — unconditional + idempotent
-  // (the DO dedupes: done→`if(finished)return`, iterate→`if(!iterating)return`).
-  // Guards the case where the in-loop emit_milestone was made (done=true) but its
-  // ingest POST silently failed, which would otherwise strand the UI in "loading".
-  await ingest.event(iterate
-    ? { phase: "iterate", event: "done", variant: variantId, file: variantFile }
-    : { phase: "done" }).catch(() => {});
+  // Backstop: if the loop ended without the agent emitting a terminal milestone
+  // (iterate done/answer, or run done — all matched by loop's `terminal`), emit
+  // one so the UI never strands in "loading". Default an iteration to `done` (a
+  // change); a missed answer is covered by the reopen guard. (The DO also dedupes.)
+  if (!done) {
+    await ingest.event(iterate
+      ? { phase: "iterate", event: "done", variant: variantId, file: variantFile }
+      : { phase: "done" }).catch(() => {});
+  }
   // Snapshot the design context to R2 so a later iteration can restore it.
   if (!iterate) {
     for (const f of CTX_FILES) await ingest.uploadFrom(`_ctx/${f}`, `${ctxDir}/${f}`).catch(() => {});

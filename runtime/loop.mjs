@@ -8,8 +8,9 @@ import { LOCAL_TOOLS } from "./tools.mjs";
 
 export async function runLoop({ provider, tools, toolSpecs, system, task, onNarration, onTool, onUsage, maxSteps = 240, maxNudges = 3, doneHint, isDone, initialMessages }) {
   const nudge = doneHint || "Continue the uplift. When everything is finished and uploaded, call emit_milestone with phase \"done\".";
-  // Terminal milestone: full run ends on phase "done"; an iteration ends on iterate.done.
-  const terminal = isDone || ((name, args) => name === "emit_milestone" && (args?.phase === "done" || (args?.phase === "iterate" && args?.event === "done")));
+  // Terminal milestone: full run ends on phase "done"; an iteration ends on
+  // iterate.done (a change) OR iterate.answer (a question — no edit).
+  const terminal = isDone || ((name, args) => name === "emit_milestone" && (args?.phase === "done" || (args?.phase === "iterate" && (args?.event === "done" || args?.event === "answer"))));
   // Resume a persisted conversation when given (it already carries system + prior
   // turns + the new user turn); otherwise start fresh from system + task.
   const messages = initialMessages?.length
