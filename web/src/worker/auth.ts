@@ -199,27 +199,6 @@ export async function getSessionUser(request: Request, env: Env): Promise<Sessio
   return { id: row.id, email: row.email, name: row.name, avatar: row.avatar, providers };
 }
 
-/** DEV ONLY — localhost-gated session for local UI iteration. Returns 404 on any
- *  non-localhost host, so it can never establish a session in production. Remove
- *  (or leave; it's inert in prod) when shipping. */
-export async function devLogin(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
-  if (url.hostname !== "localhost" && url.hostname !== "127.0.0.1") return new Response("not found", { status: 404 });
-  const id = "dev@localhost";
-  const existing = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(id).first();
-  if (!existing) {
-    await env.DB.prepare("INSERT INTO users (id, email, name, avatar, providers, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .bind(id, id, "Dev", "", JSON.stringify(["dev"]), Date.now()).run();
-  }
-  const sid = randB64url(32);
-  const now = Date.now();
-  await env.DB.prepare("INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)")
-    .bind(sid, id, now + SESSION_TTL_MS, now).run();
-  const h = new Headers({ Location: "/" });
-  h.append("Set-Cookie", cookie(SESSION_COOKIE, sid, { maxAge: SESSION_TTL_MS / 1000, secure: false }));
-  return new Response(null, { status: 302, headers: h });
-}
-
 export async function logout(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const sid = parseCookies(request)[SESSION_COOKIE];

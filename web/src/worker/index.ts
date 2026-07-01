@@ -4,7 +4,7 @@
    =========================================================================== */
 import { RunSession } from "./runSession";
 import { SandboxContainer } from "./sandbox";
-import { startOAuth, handleCallback, getSessionUser, logout, devLogin } from "./auth";
+import { startOAuth, handleCallback, getSessionUser, logout } from "./auth";
 import { suggestNextSteps } from "./suggest";
 export { RunSession, SandboxContainer };
 
@@ -107,7 +107,6 @@ export default {
     if (path === "/auth/google/callback") return handleCallback("google", request, env);
     if (path === "/auth/github/callback") return handleCallback("github", request, env);
     if (path === "/auth/logout" && request.method === "POST") return logout(request, env);
-    if (path === "/api/_dev/login") return devLogin(request, env); // localhost-only (404 elsewhere)
     if (path === "/api/me") {
       const user = await getSessionUser(request, env);
       return Response.json({ user });
