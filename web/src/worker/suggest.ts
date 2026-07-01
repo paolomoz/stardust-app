@@ -13,12 +13,13 @@ const VIEW: Record<string, string> = {
   workspace: "a chosen variant in the workspace",
 };
 
-/** One-shot completion via Bedrock Haiku (preferred) or the Anthropic API. */
+/** One-shot completion via Bedrock Haiku (preferred; funded like the runs) or the
+ *  direct Anthropic API. Returns "" on any miss (caller keeps static chips). */
 async function callHaiku(env: Env, prompt: string): Promise<string> {
   const bedKey = (env.BEDROCK_API_KEY || "").replace(/^AWS_BEARER_TOKEN_BEDROCK=/, "").trim();
   if (bedKey) {
     const region = env.BEDROCK_REGION || "us-east-1";
-    const model = env.BEDROCK_HAIKU_MODEL || "us.anthropic.claude-haiku-4-5-20251001";
+    const model = env.BEDROCK_HAIKU_MODEL || "us.anthropic.claude-3-haiku-20240307-v1:0";
     try {
       const r = await fetch(`https://bedrock-runtime.${region}.amazonaws.com/model/${model}/invoke`, {
         method: "POST",
@@ -38,8 +39,7 @@ async function callHaiku(env: Env, prompt: string): Promise<string> {
         body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 80, messages: [{ role: "user", content: prompt }] }),
       });
       if (r.ok) { const j = (await r.json()) as { content?: { text?: string }[] }; return (j.content?.[0]?.text ?? "").trim(); }
-      console.error("[suggest] anthropic", r.status, (await r.text()).slice(0, 150));
-    } catch (e) { console.error("[suggest] anthropic err", String(e)); }
+    } catch { /* ignore */ }
   }
   return "";
 }
@@ -77,8 +77,10 @@ export async function suggestNextSteps(env: Env, runId: string, screen: string):
     (leads.length ? `Recent activity:\n- ${leads.join("\n- ")}\n` : "") +
     `\nSuggest exactly TWO specific, useful things the designer could ask you to do next from here. ` +
     `Reference the real brand/variant/tension where it sharpens the idea. ` +
-    `Each ≤ 7 words, imperative, concrete. Output ONLY the two lines — no numbering, no quotes, no preamble.`;
+    `Each ≤ 7 words, imperative, concrete, phrased as a natural instruction the ` +
+    `designer would type. Never include internal ids, codes, or parentheticals. ` +
+    `Output ONLY the two lines — no numbering, no quotes, no preamble.`;
 
   const text = await callHaiku(env, prompt);
-  return text.split("\n").map((l) => l.replace(/^[-*\d.)\s]+/, "").trim()).filter(Boolean).slice(0, 2);
+  return text.split("\n").map((l) => l.replace(/^[-*\d.)\s]+/, "").replace(/\s*\([^)]*\)\s*$/, "").trim()).filter(Boolean).slice(0, 2);
 }
