@@ -26,6 +26,25 @@ real slowdowns + a perception gap.
   latency (and cost) materially.
 - **(see Parallelization)** — parallel variant builds is the largest wall-clock win.
 
+## Live timing (measured — prod run, hirslanden.ch, 2026-07-01)
+
+29 min total. extract **~7m** (render 3:17 · brand 1:03 · tensions 2:28 →
+brand_ready 6:48). Then a **~20-min block with NO milestones** (6:48 → 26:46)
+where directions are composed and A/B/C are built **serially**. variant_done
+A/B/C fire ~20-40s apart at 27:50-28:27 (those are *uploads* of already-built
+variants). Two findings:
+
+- **ETA re-anchoring.** The one-shot estimate said 45m (clamp ceiling); actual
+  was 29m — 55% over, and blind. Fix: (1) recompute at `brand_ready` off the
+  *real* extract time (build ≈ 2.5-3× extract); (2) during the 20-min build,
+  drive the bar off **narration** (per-variant `write_file` / "building variant
+  N/3") — emit a milestone at each build's *start*, since `variant_done` fires at
+  upload, far too late.
+- **Build is the bottleneck, and it's serial.** ~18 of the 20 min is building
+  A→B→C one at a time in one loop. Parallelizing the three (below) → build ~6-7m,
+  total run **29m → ~15m**. extract stays a serial prerequisite; nothing is
+  redundant to cut.
+
 ## Parallelization (RECOMMENDED)
 
 Sequential today: extract → direct → prototype ×3 (each variant via
