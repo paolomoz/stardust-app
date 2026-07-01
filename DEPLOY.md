@@ -128,11 +128,25 @@ same ingest contract.
 
 ---
 
-## Pending production deploy — local → prod (as of 2026-06-30)
+## ✅ DEPLOYED — 2026-07-01
 
-Prod baseline = commit `f5e0bd1` (eviction fix, version `27bf86d1`). Everything
-since is local-only. This is a **worker-bundle + static-assets** deploy:
-**no image rebuild, no D1 migration, no new secrets.**
+Nav redesign + project switching + footer + LLM suggestions + the eviction/panel
+fixes are **live in prod**; dev-login removed. Verified in prod: public
+endpoints, demo static assets (`/knack-demo/**`), `/api/runs/:id/suggest`
+(contextual, via Bedrock **Claude 3 Haiku** = `us.anthropic.claude-3-haiku-20240307-v1:0`
+— the 4.5/3.5 ids are invalid/EOL on this account; overridable via
+`BEDROCK_HAIKU_MODEL`), and the WS reopen `panel.*` push (gallery populates on
+reopen). Owner-gating intact. Remaining: sign in on prod + click the UI once
+(authed UI couldn't be exercised without a session). ETA still falls back
+(direct ANTHROPIC_API_KEY has no credits) — could move to Bedrock like suggest.
+
+---
+
+## (history) Pending production deploy — local → prod
+
+Prod baseline = commit `f5e0bd1` (eviction fix, version `27bf86d1`). This was a
+**worker-bundle + static-assets** deploy: **no image rebuild, no D1 migration,
+no new secrets.**
 
 ### 1. MUST remove before deploy — the dev-login backdoor
 - `web/src/worker/auth.ts` → delete `devLogin()`.
