@@ -6,11 +6,20 @@
 
    Modes (env.MODE, default "uplift"; ITERATE=1 is the legacy alias for iterate):
      uplift    — full stardust:uplift run → brand + 3 variants (home page).
+                 With UPLIFT_STAGE=direct it stops after direct (extract + brand +
+                 the 3 directions), bundles the workspace, and hands off — the DO
+                 then fans out one "build" job per variant (parallel craft).
+     build     — craft ONE home-page variant from the phase-1 bundle (the pinned
+                 DESIGN-<id> + direction). One container per variant, in parallel.
      iterate   — apply one change to an existing variant (workspace chat).
      variant   — generate an ADDITIONAL direction (variant D, E, …) by forking a
                  base variant and re-crafting it (Directions chat / + new direction).
      template  — render ANOTHER page of the site in a chosen variant's direction
                  (the prototype phase). Restores the run's workspace bundle.
+     deploy    — convert finished prototypes into an Edge Delivery Services
+                 bundle (_eds/: blocks + content fragments + manifest) per
+                 eds-deploy-guide.md. A deterministic host-side publisher
+                 (eds-publish.mjs, driven by the runner) does the transport.
 
    Env:
      RUN_ID, INGEST_BASE, INGEST_TOKEN   (from the Durable Object)
@@ -51,6 +60,9 @@ const tools = makeTools({ workdir, outputsDir, ingest });
 const system = await readFile(new URL("./system-prompt.md", import.meta.url), "utf8");
 
 const mode = env.MODE || (env.ITERATE === "1" ? "iterate" : "uplift");
+// Parallel uplift: phase 1 (UPLIFT_STAGE=direct) stops after direct and bundles;
+// the DO then fans out one "build" job per variant.
+const stage = env.UPLIFT_STAGE || "";
 // Post-run jobs may run under a fresh isolated WORKDIR (prod parallel jobs) — make
 // sure it exists before the plugin/impeccable cd into it.
 try { mkdirSync(workdir, { recursive: true }); } catch { /* exists */ }
@@ -61,6 +73,14 @@ const instruction = env.INSTRUCTION || "";
 const slug = env.SLUG || "";
 const pageUrl = env.PAGE_URL || "";
 const pageTitle = env.PAGE_TITLE || slug;
+// Deploy-mode config (org/site/branch conventions decided by the DO).
+const project = env.PROJECT || "";
+const daOrg = env.DA_ORG || "paolomoz";
+const daSite = env.DA_SITE || "stardust-app-fable";
+const branch = env.BRANCH || project;
+const previewHost = env.PREVIEW_HOST || `https://${branch}--${daSite}--${daOrg}.aem.page`;
+let deployPages = [];
+try { deployPages = JSON.parse(env.PAGES || "[]"); } catch { /* [] */ }
 
 // The design context an iteration/variant fork needs (impeccable reads these).
 // Snapshotted to R2 at the end of a run and restored at the start of a job — so
@@ -124,6 +144,36 @@ function pinVariant(id) {
   }
 }
 
+/** Deterministic progress watcher: the model batches milestone emissions, so the
+ *  board can trail reality by whole phases. Poll the workspace for phase-marker
+ *  files and push a `watch.marker` event the moment each lands — the DO maps
+ *  markers to board-row advancement (never to panel payloads, which still come
+ *  from the real milestones). Display-only, best-effort. */
+function startMarkerWatcher() {
+  const seen = new Set();
+  const MARKERS = [
+    ["rendered", () => existsSync(`${workdir}/stardust/current/pages`)],
+    ["brand_extracted", () => existsSync(`${workdir}/stardust/current/_brand-extraction.json`)],
+    ["brand_built", () => existsSync(`${workdir}/stardust/current/brand-review.html`)],
+    ["directions", () => existsSync(`${workdir}/stardust/direction.md`)],
+    ["designs", () => ["A", "B", "C"].every((v) => existsSync(`${workdir}/DESIGN-${v}.json`))],
+  ];
+  const tick = () => {
+    for (const [id, hit] of MARKERS) {
+      if (seen.has(id)) continue;
+      try {
+        if (hit()) {
+          seen.add(id);
+          void ingest.event({ phase: "watch", event: "marker", marker: id }).catch(() => {});
+        }
+      } catch { /* best-effort */ }
+    }
+  };
+  const t = setInterval(tick, 15_000);
+  t.unref?.();
+  return () => clearInterval(t);
+}
+
 // ---- task strings per mode --------------------------------------------------
 
 const upliftTask =
@@ -131,6 +181,36 @@ const upliftTask =
   `Redesign ${url} for presales. Run stardust:uplift to completion, non-interactively. ` +
     `The skills are baked at /workspace/skills; work in /workspace and write deliverables to ${outputsDir}. ` +
     `Emit each milestone (emit_milestone) the instant it happens and upload each deliverable (upload_artifact) as soon as it exists.`;
+
+// Phase 1 of the parallel uplift: extract + direct ONLY. The variant pages are
+// crafted by parallel "build" workers afterwards — never by this container.
+const directTask =
+  `Redesign ${url} for presales. Run stardust:uplift NON-INTERACTIVELY, but ONLY through its extract and direct phases — ` +
+  `the three variant pages are built afterwards by parallel workers, NOT by you. ` +
+  `The skills are baked at /workspace/skills; work in /workspace; write deliverables to ${outputsDir}.\n` +
+  `1. Run uplift's extract phase in full (live render, brand read, tensions). Emit extract.started / extract.seed / ` +
+  `extract.tensions / extract.brand_ready milestones the INSTANT each happens, and upload brand-review.html plus every asset it references.\n` +
+  `2. Run uplift's direct phase in full (Mode A, three brand-faithful directions A/B/C): write stardust/direction.md and the ` +
+  `per-variant DESIGN-A/B/C.md + DESIGN-A/B/C.json at the project root, exactly per the skill.\n` +
+  `3. As the LAST thing, emit_milestone(phase="direct", event="variants_ready", data={"sharedFixes":[…],"variants":[{id,title,pitch,whatif,role,file,thumb},…]}) ` +
+  `using uplift's canonical file names (home-A-proposed.html, home-B-proposed.html, home-C-cinematic.html; thumbs assets/thumb-<id>.png) — ` +
+  `those files don't exist yet; the build workers create and upload them.\n` +
+  `Do NOT run the prototype phase, do NOT build any home-*.html, do NOT emit prototype.variant_done or done.`;
+
+// Phase 2 worker: craft ONE variant's home page from the phase-1 bundle.
+const buildTask =
+  `You are one of the parallel builders finishing an uplift of ${url}: craft variant ${variantId}'s home page. ` +
+  `The phase-1 workspace is restored under /workspace (brand extraction + captures under stardust/current, stardust/direction.md, per-variant DESIGN files); ` +
+  `DESIGN.md/DESIGN.json at the project root are already pinned to variant ${variantId}. Write deliverables to ${outputsDir}.\n` +
+  `1. Read /workspace/skills/stardust/uplift/SKILL.md (the per-variant build contract, gates included) and ` +
+  `stardust/direction.md's variant ${variantId} section.\n` +
+  `2. Build ${variantFile} THROUGH $impeccable craft (read /workspace/skills/impeccable/reference/craft.md and follow it): ` +
+  `production-grade, brand-faithful, real content from the extracted capture (stardust/current/pages/), then inspect and improve it ` +
+  `in the browser (Playwright screenshots) until it meets the studio bar. Run uplift's validation gates for this ONE variant.\n` +
+  `3. Save it to ${outputsDir}/${variantFile}; capture a thumbnail to ${outputsDir}/assets/thumb-${variantId}.png; ` +
+  `upload_artifact both plus any assets the page references.\n` +
+  `4. Finish with emit_milestone(phase="prototype", event="variant_done", data={"variant":"${variantId}","file":"${variantFile}"}). ` +
+  `Build ONLY variant ${variantId} — never touch the other variants' files.`;
 
 const iterateTask =
   `You are in an ongoing session for variant ${variantId} of an existing redesign (its file is ${outputsDir}/${variantFile}; the persisted workspace is /workspace/stardust, deliverables in ${outputsDir}). ` +
@@ -171,17 +251,41 @@ const templateTask =
   `5. Send a short reply_to_user summary and finish with emit_milestone(phase="template", event="page_done", data={"slug":"<slug>","title":"<title>","file":"<slug>-proposed.html","thumb":"assets/thumb-<slug>.png"}). Omit thumb if none.\n` +
   `Put everything the director should read in reply_to_user — other output is dim 'thinking'.`;
 
+const deployList = deployPages.map((p) => `- ${p.slug}: "${p.title || p.slug}" ← ${outputsDir}/${p.file}`).join("\n");
+const deployTask =
+  `You are converting finished stardust prototypes into an Edge Delivery Services (AEM EDS) site. ` +
+  `FIRST read /workspace/runtime/eds-deploy-guide.md and follow it exactly — layout, block rule, the ENCODE contract, manifest schema.\n` +
+  `Project: ${project} · org ${daOrg} · site ${daSite} · branch ${branch} · preview host ${previewHost}.\n` +
+  `Pages to convert (prototype files already in ${outputsDir}):\n${deployList}\n` +
+  `If ${outputsDir}/_eds/manifest.json already exists this is an INCREMENTAL deploy — merge per the guide (reuse existing blocks; read their CSS under _eds/code/blocks/ first).\n` +
+  `Steps:\n` +
+  `1. Convert each page per the guide → write ${outputsDir}/_eds/content/<slug>.html (home = index.html). ` +
+  `Emit emit_milestone(phase="deploy", event="page_converted", data={"slug":"<slug>"}) the moment each fragment is written.\n` +
+  `2. Write the code per the guide under ${outputsDir}/_eds/code/ (blocks, styles/styles.css, styles/fonts.css, fonts, img/${project}/ — copy the image binaries with run_bash from the prototype assets in ${outputsDir}/assets/).\n` +
+  `3. Write the shared nav + footer fragments (_eds/content/nav.html, _eds/content/footer.html).\n` +
+  `4. Write ${outputsDir}/_eds/manifest.json exactly per the guide's schema.\n` +
+  `5. upload_artifact EVERY file under _eds/ (manifest, every content fragment, every code file, every image binary).\n` +
+  `6. reply_to_user a short summary — blocks created, pages converted, compromises.\n` +
+  `7. Finish with emit_milestone(phase="deploy", event="bundle_ready", data={"pages":${JSON.stringify(deployPages.map((p) => p.slug))}}).`;
+
 // ---- terminal + restore per mode -------------------------------------------
 
 let task;
 let doneHint;
 let initialMessages;
 
+/** Restore a job's inputs concurrently — the model can't start until these land,
+ *  so serial round-trips sit on the critical path of every interactive job. */
+const restoreJobInputs = () =>
+  Promise.all([
+    ingest.download(variantFile, `${outputsDir}/${variantFile}`).catch(() => {}),
+    ...CTX_FILES.map((f) => ingest.download(`_ctx/${f}`, `${ctxDir}/${f}`).catch(() => {})),
+  ]);
+
 if (mode === "iterate") {
   task = iterateTask;
   doneHint = `Finish now: if it was a question, answer it and call emit_milestone(phase="iterate", event="answer"); if a change, upload the updated ${variantFile} and call emit_milestone(phase="iterate", event="done").`;
-  await ingest.download(variantFile, `${outputsDir}/${variantFile}`).catch(() => {});
-  for (const f of CTX_FILES) await ingest.download(`_ctx/${f}`, `${ctxDir}/${f}`).catch(() => {});
+  await restoreJobInputs();
   // Per-variant conversation, persisted to R2 so iterations have memory. Continue
   // it by appending this instruction as a follow-up turn.
   const SESSION_KEY = `_sessions/${variantId}.json`;
@@ -197,8 +301,7 @@ if (mode === "iterate") {
 } else if (mode === "variant") {
   task = variantTask;
   doneHint = `Finish now: if it was a question, call emit_milestone(phase="variant", event="answer"); otherwise upload ${newVariantFile} and call emit_milestone(phase="variant", event="added", data={"card":{...}}).`;
-  await ingest.download(variantFile, `${outputsDir}/${variantFile}`).catch(() => {});
-  for (const f of CTX_FILES) await ingest.download(`_ctx/${f}`, `${ctxDir}/${f}`).catch(() => {});
+  await restoreJobInputs();
   pointImpeccableContext();
 } else if (mode === "template") {
   task = templateTask;
@@ -206,6 +309,33 @@ if (mode === "iterate") {
   await restoreBundle();
   pinVariant(variantId);
   pointImpeccableContext();
+} else if (mode === "build") {
+  task = buildTask;
+  doneHint = `Finish now: upload ${variantFile} (+ thumb) and call emit_milestone(phase="prototype", event="variant_done", data={"variant":"${variantId}","file":"${variantFile}"}).`;
+  await restoreBundle();
+  pinVariant(variantId);
+  pointImpeccableContext();
+} else if (mode === "deploy") {
+  task = deployTask;
+  doneHint = `Finish now: upload every _eds/ file and call emit_milestone(phase="deploy", event="bundle_ready", data={"pages":[…]}).`;
+  // Best-effort restore of inputs (locally the outputs mount already has them):
+  // the page prototypes, plus the existing _eds manifest + block CSS for an
+  // incremental deploy.
+  await Promise.all(deployPages.map((p) => ingest.download(p.file, `${outputsDir}/${p.file}`).catch(() => {})));
+  const prevManifest = await ingest.downloadJSON("_eds/manifest.json").catch(() => null);
+  if (prevManifest) {
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    await mkdir(`${outputsDir}/_eds`, { recursive: true }).catch(() => {});
+    await writeFile(`${outputsDir}/_eds/manifest.json`, JSON.stringify(prevManifest, null, 2)).catch(() => {});
+    for (const b of prevManifest.blocks ?? []) {
+      await ingest.download(`_eds/code/blocks/${b}/${b}.css`, `${outputsDir}/_eds/code/blocks/${b}/${b}.css`).catch(() => {});
+      await ingest.download(`_eds/code/blocks/${b}/${b}.js`, `${outputsDir}/_eds/code/blocks/${b}/${b}.js`).catch(() => {});
+    }
+    await ingest.download("_eds/code/styles/styles.css", `${outputsDir}/_eds/code/styles/styles.css`).catch(() => {});
+  }
+} else if (stage === "direct") {
+  task = directTask;
+  doneHint = `Finish now: emit_milestone(phase="direct", event="variants_ready", data={"sharedFixes":[…],"variants":[…]}) with the three directions.`;
 } else {
   task = upliftTask;
 }
@@ -216,14 +346,23 @@ const terminal = (name, args) => {
   if (mode === "iterate") return p === "iterate" && (e === "done" || e === "answer");
   if (mode === "variant") return p === "variant" && (e === "added" || e === "answer");
   if (mode === "template") return p === "template" && (e === "page_done" || e === "answer");
+  if (mode === "build") return p === "prototype" && e === "variant_done";
+  if (mode === "deploy") return p === "deploy" && e === "bundle_ready";
+  if (stage === "direct") return p === "direct" && e === "variants_ready";
   return p === "done";
 };
+
+// The watcher only helps long uplift phases (extract/direct emit late); short
+// post-run jobs have reliable terminal milestones.
+const stopWatcher = mode === "uplift" ? startMarkerWatcher() : null;
 
 try {
   await ingest.event({ type: "narration", text:
     mode === "iterate" ? `${provider.name} ${provider.model} — variant ${variantId}: ${instruction}`
     : mode === "variant" ? `${provider.name} ${provider.model} — new direction ${variantName}: ${instruction}`
     : mode === "template" ? `${provider.name} ${provider.model} — prototyping ${pageTitle || slug || "a page"} in variant ${variantId}`
+    : mode === "build" ? `${provider.name} ${provider.model} — crafting variant ${variantId}`
+    : mode === "deploy" ? `${provider.name} ${provider.model} — converting ${deployPages.length} page(s) to Edge Delivery`
     : `${provider.name} ${provider.model} — starting${url ? ` uplift of ${url}` : ""}.` });
 
   const { usage, done, steps } = await runLoop({
@@ -242,6 +381,8 @@ try {
   // Persist the per-variant conversation so the next iterate prompt has memory.
   if (mode === "iterate") await ingest.uploadJSON(`_sessions/${variantId}.json`, steps).catch(() => {});
 
+  stopWatcher?.();
+
   // Backstop: never strand the UI in "loading" if the loop ended without a
   // terminal milestone. Default each mode to an honest terminal event.
   if (!done) {
@@ -249,24 +390,31 @@ try {
       mode === "iterate" ? { phase: "iterate", event: "done", variant: variantId, file: variantFile }
       : mode === "variant" ? { phase: "variant", event: "failed", message: "the direction wasn't produced" }
       : mode === "template" ? { phase: "template", event: "page_failed", slug: slug || tSlug, message: "the page wasn't rendered" }
+      : mode === "build" ? { phase: "prototype", event: "variant_failed", variant: variantId, message: "the variant wasn't built" }
+      : mode === "deploy" ? { phase: "deploy", event: "failed", message: "the conversion didn't finish" }
+      : stage === "direct" ? { phase: "failed", message: "the directions weren't composed" }
       : { phase: "done" };
     await ingest.event(ev).catch(() => {});
   }
 
   // End-of-run snapshots: the design context (iterate/variant restore it) + the
-  // whole workspace bundle (template jobs restore it) + discovered pages.
+  // whole workspace bundle (build/template jobs restore it) + discovered pages.
+  // In the parallel pipeline this runs at the end of phase 1; the deterministic
+  // bundle_ready event is the DO's fan-out signal (workers need the bundle).
   if (mode === "uplift") {
-    for (const f of CTX_FILES) await ingest.uploadFrom(`_ctx/${f}`, `${ctxDir}/${f}`).catch(() => {});
+    await Promise.all(CTX_FILES.map((f) => ingest.uploadFrom(`_ctx/${f}`, `${ctxDir}/${f}`).catch(() => {})));
     const pages = derivePages(`${workdir}/stardust/current/pages`, url);
     if (pages.length) await ingest.event({ phase: "extract", event: "pages", pages }).catch(() => {});
     await bundleWorkspace();
+    if (stage === "direct" && done) await ingest.event({ phase: "direct", event: "bundle_ready" });
   }
   // A new direction changed the workspace (new DESIGN-<name>) — re-bundle so
   // later template jobs can render pages in it too.
   if (mode === "variant" && done) await bundleWorkspace();
 
-  console.log(`runtime finished: mode=${mode} done=${done} calls=${usage.calls} tokens=${usage.total}`);
+  console.log(`runtime finished: mode=${mode}${stage ? `/${stage}` : ""} done=${done} calls=${usage.calls} tokens=${usage.total}`);
 } catch (e) {
+  stopWatcher?.();
   const message = String(e?.message ?? e);
   console.error("runtime error:", message);
   // Structured failure so the UI shows an honest error, not a hung spinner. A
@@ -277,6 +425,8 @@ try {
       mode === "iterate" ? { phase: "iterate", event: "failed", variant: variantId, message }
       : mode === "variant" ? { phase: "variant", event: "failed", message }
       : mode === "template" ? { phase: "template", event: "page_failed", slug: slug || tSlug, message }
+      : mode === "build" ? { phase: "prototype", event: "variant_failed", variant: variantId, message }
+      : mode === "deploy" ? { phase: "deploy", event: "failed", message }
       : { phase: "failed", message };
     await ingest.event(ev);
     reported = true;

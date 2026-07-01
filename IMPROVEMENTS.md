@@ -13,10 +13,9 @@ real slowdowns + a perception gap.
   in-browser QA screenshots) + node/bash/impeccable scripts are CPU-bound and run
   several× slower on 1 vCPU. **Biggest real factor.** Fix: bump to `standard-4`
   (4 vCPU); our 3.5 GB image fits its 20 GB disk; cost still pennies vs the LLM.
-- **Fire-and-forget ingest.** The agent loop currently `await`s each
-  narration/tool ingest POST. In prod those hop container → public Worker
-  (internet RTT, tens-of-ms each) vs `localhost` in dev; across 200+ events that
-  adds minutes. Fix: don't await onNarration/onTool POSTs (already best-effort).
+- **Fire-and-forget ingest.** ✅ **DONE (2026-07-02).** Narration/tool POSTs now
+  ride an ordered non-blocking side queue in loop.mjs (flushed before terminal
+  events) instead of `await`ing each on the model loop's critical path.
 - **Progress fidelity (perceived speed).** Opus batches milestone emissions, so
   the bar sits at "58% / brand captured" while the agent is actually building
   variant C. Run *looks* stuck. Fix: drive the bar off narration cadence and/or
@@ -28,21 +27,17 @@ real slowdowns + a perception gap.
     PRODUCT/DESIGN. So the board understated real progress by ~2 phases; it only
     catches up when the agent finally emits `brand_ready`/`variants_ready` (often
     in a burst). The board machinery is correct — the agent just emits late.
-  - **Fix (deterministic milestone backstop).** Don't rely on the model to
-    `emit_milestone` on time. Have the runtime watch the workspace and emit the
-    phase milestone when its artifact/state lands — mirrors the iterate
-    force-emit + DO artifact-arrival completion (`ingestArtifact`): e.g. emit
-    `extract.brand_ready` when `stardust/current/brand-review.html` +
-    `_brand-extraction.json` exist; `direct.variants_ready` when the
-    `DESIGN-*.json` set + `direction.md` variant sections exist;
-    `prototype.variant_done` when each `home-*-proposed.html` lands. Poll in
-    `agent.mjs` (a lightweight fs-watch beside the loop) OR infer in the DO from
-    `upload_artifact` paths (brand-review → brand_ready; each proposed.html →
-    variant_done). Turns board progress from model-timed into event-timed.
-- **Prompt caching.** Runs re-read ~15-18M cached-context tokens. Anthropic
-  prompt caching on the system prompt + baked skill files would cut per-call
-  latency (and cost) materially.
-- **(see Parallelization)** — parallel variant builds is the largest wall-clock win.
+  - **Fix (deterministic milestone backstop).** ✅ **DONE (2026-07-02).**
+    `agent.mjs` runs a 15s marker watcher during uplift (pages capture,
+    `_brand-extraction.json`, `brand-review.html`, `direction.md`, the three
+    `DESIGN-*.json`) and pushes `watch.marker` events; the DO maps them to
+    board-row advancement + status text (panels still come from real
+    milestones). Progress is now monotonic server-side (`bumpProgress`).
+    Verified live on the first parallel run.
+- **Prompt caching.** ✅ **DONE (2026-07-02).** provider-bedrock.mjs sets
+  `cache_control` breakpoints (static on system, moving on the last message) so
+  each turn re-reads the loop history from cache instead of re-prefilling.
+- **(see Parallelization)** — ✅ implemented, see below.
 
 ## Resilience / scalability (measured — 8 concurrent local runs, 2026-07-01)
 
@@ -64,12 +59,10 @@ discovery + the workspace bundle under load. Two real gaps surfaced:
   (bedrock/cerebras) and all ingest calls (event/artifact/uploadFrom/download/
   JSON). Would have saved all 4 lost runs. (Not yet applied to the Worker's
   haiku.ts suggest/ETA path — lower priority, already falls back gracefully.)
-- **No concurrency control anywhere.** The runner/`server.mjs` spawn a container
-  per request with no cap or stagger; the DO has no per-user run limit. Didn't
-  bite at 8 (compute was fine), but it's the latent ceiling — a large burst would
-  eventually exhaust the Docker VM memory or Bedrock quota. Fix: a small
-  max-concurrency queue in the runner + a per-user in-flight cap in the Worker
-  (pairs with the per-user run-cap guardrail already noted).
+- **No concurrency control anywhere.** ✅ **Runner side DONE (2026-07-02):**
+  FIFO queue capped at `RUNNER_MAX_CONCURRENCY` (default 10); canceled runs
+  dropped at dequeue. Still open: a per-user in-flight cap in the Worker
+  (pairs with the per-user run-cap guardrail already noted) + prod server.mjs.
 
 ## Live timing (measured — prod run, hirslanden.ch, 2026-07-01)
 
@@ -90,7 +83,14 @@ variants). Two findings:
   total run **29m → ~15m**. extract stays a serial prerequisite; nothing is
   redundant to cut.
 
-## Parallelization (RECOMMENDED)
+## Parallelization — ✅ IMPLEMENTED (2026-07-02, `PIPELINE_VERSION parallel-1`)
+
+Shipped exactly as designed below: phase 1 (`UPLIFT_STAGE=direct`) runs
+extract+direct, uploads `_ctx/` + the workspace bundle, emits a deterministic
+`direct.bundle_ready`; the DO fans out one `build` container per variant
+(restoreBundle + pinVariant + craft → `variant_done`); the run completes when
+the fan-out drains (≥1 success). Stray `done` milestones are guarded. Cerebras
+keeps the serial path. Original design kept for reference:
 
 Sequential today: extract → direct → prototype ×3 (each variant via
 `$impeccable craft` + in-browser QA + motion validation). The prototype phase
@@ -125,14 +125,10 @@ Costs / caveats:
 
 ## UX
 
-- **URL-as-run-state (bookmarkable / reload-safe).** On starting a run, switch
-  the browser URL to `/?run=<id>` (history.replaceState) so the user can bookmark
-  it and reload. On reload of a *running* run, restore the full live status —
-  chat, artifacts, **and the progress bar / thinking dots** — then keep streaming.
-  Mostly works already: `reopenRun` rehydrates run_events + result_json and the
-  DO reconnects/continues live (robust now post eviction-fix); the missing piece
-  is (a) updating the URL on `beginRun`, and (b) confirming the working-screen
-  progress/busy/eta restore on a mid-run reload. Small change, high value.
+- **URL-as-run-state (bookmarkable / reload-safe).** ✅ **DONE (2026-07-02):**
+  `beginRun` now `history.replaceState`s `/?run=<id>` the moment the run is
+  created. Also the client WebSocket auto-reconnects with backoff (the DO
+  replays timeline + panels per connection), so mid-run drops self-heal.
 - **Clear "done" state on the working screen.** When a run finishes, the working
   stage still shows "Building… / brand surface captured" with a spinner (looks
   stuck) until the user clicks "See snapshot". Show an explicit done state
@@ -176,13 +172,11 @@ columns are "future / greyed."
 
 ## Known bugs
 
-- **Overview Uplift column empty on reopen ("IN PROGRESS").** Same DO-eviction
-  family as the result_json fix, but `this.tasks` isn't rehydrated: a cold DO
-  re-emits an empty `tasks.init` late in the run, which wins on replay → empty
-  column + false "in progress". Deliverables are unaffected. Fix: don't emit an
-  empty `tasks.init` (guard the variant_done/done emits), rehydrate `this.tasks`
-  on a cold DO, and/or derive the column's done-state from `result_json` on
-  reopen. Cosmetic; tracked for the next reliability pass.
+- **Overview Uplift column empty on reopen ("IN PROGRESS").** ✅ **FIXED
+  (2026-07-02):** `this.tasks` (and the terminal `finished` flag, the parallel
+  build fan-out, in-flight iteration state) are persisted in result_json and
+  rehydrated on a cold DO; empty `tasks.init` emits are guarded; D1 insert now
+  precedes the WS broadcast so replay can't miss shown events.
 
 ## Reliability / Scale (future)
 - **Bedrock quota** increase before high concurrency (the real 100-parallel cap;

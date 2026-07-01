@@ -10,6 +10,14 @@ import type { ClientCommand, ServerEvent } from "../shared/protocol";
 import { isServerEvent } from "../shared/protocol";
 
 let ws: WebSocket | null = null;
+// Reconnect state: the DO replays the timeline + panels on every (re)connection
+// and message.append is id-deduped, so a reconnect self-heals the store.
+let wsRunId: string | null = null;
+let closedByUs = false;
+let retries = 0;
+// Commands typed while the socket was down — flushed on (re)open instead of
+// being silently dropped.
+const pending: ClientCommand[] = [];
 
 // Once the user (or a /?view= URL) picks a view, the client owns navigation —
 // ignore the DO's own `screen` events so they can't yank the view back.
@@ -91,6 +99,9 @@ function apply(ev: ServerEvent): void {
         if (ev.protoVariant) s.protoVariant = ev.protoVariant;
       });
       break;
+    case "panel.deploy":
+      store.set({ deploy: ev.deploy });
+      break;
     case "rail":
       store.set({ rail: ev.rail });
       break;
@@ -116,11 +127,13 @@ function apply(ev: ServerEvent): void {
 
 function command(cmd: ClientCommand): void {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(cmd));
+  else pending.push(cmd); // flushed on (re)connect
 }
 
 /** Landing → start a run: create it, then stream its events over the WS.
- *  mode "agent" runs a real Managed Agents session; default "scripted" (demo). */
-export async function beginRun(url: string, mode: "scripted" | "agent" | "probe" | "uplift" | "cerebras" | "bedrock" = "scripted"): Promise<void> {
+ *  "bedrock" = the real Opus run; "cerebras" = cheap demo model; "scripted" =
+ *  the offline knack replay. */
+export async function beginRun(url: string, mode: "scripted" | "cerebras" | "bedrock" = "bedrock"): Promise<void> {
   resetRun();
   const res = await fetch("/api/runs", {
     method: "POST",
@@ -133,6 +146,9 @@ export async function beginRun(url: string, mode: "scripted" | "agent" | "probe"
   }
   const { id } = (await res.json()) as { id: string };
   store.set({ live: true, runId: id }); // a fresh run → artifact "ready" toasts are wanted
+  // Make the run bookmarkable/reload-safe the moment it exists — a reload of
+  // /?run=<id> reopens this run live instead of landing on a blank home.
+  try { history.replaceState(null, "", `/?run=${id}`); } catch { /* sandboxed iframe etc. */ }
   openSocket(id);
 }
 
@@ -169,14 +185,36 @@ export function reopenRun(runId: string): void {
 }
 
 function openSocket(id: string): void {
-  ws = new WebSocket(wsUrl(id));
-  ws.addEventListener("message", (e) => {
+  wsRunId = id;
+  closedByUs = false;
+  retries = 0;
+  connect();
+}
+
+function connect(): void {
+  if (!wsRunId) return;
+  const sock = new WebSocket(wsUrl(wsRunId));
+  ws = sock;
+  sock.addEventListener("open", () => {
+    retries = 0;
+    while (pending.length && sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify(pending.shift()));
+  });
+  sock.addEventListener("message", (e) => {
     try {
       const data = JSON.parse(typeof e.data === "string" ? e.data : "");
       if (isServerEvent(data)) apply(data);
     } catch {
       /* ignore malformed frames */
     }
+  });
+  // Auto-reconnect with backoff: a DO eviction, network blip, or laptop sleep
+  // must not freeze a 20-minute run's UI. (`error` is always followed by
+  // `close`, so only `close` schedules the retry.)
+  sock.addEventListener("close", () => {
+    if (closedByUs || ws !== sock) return;
+    ws = null;
+    const delay = Math.min(15_000, 500 * 2 ** retries++) + Math.random() * 400;
+    setTimeout(() => { if (!closedByUs && wsRunId) connect(); }, delay);
   });
 }
 
@@ -209,8 +247,14 @@ export const sendMessage = (screen: ScreenId, text: string) => command({ t: "sen
 export const addVariant = (instruction: string) => command({ t: "addVariant", instruction });
 export const prototypePages = (slugs: string[]) => command({ t: "prototype", slugs });
 export const setProtoVariant = (variant: VariantId) => command({ t: "setProtoVariant", variant });
+export const deployPages = (slugs: string[]) => command({ t: "deploy", slugs });
+export const goLive = () => command({ t: "golive" });
+export const rolloutSite = () => command({ t: "rollout" });
 
 export function resetRun(): void {
+  closedByUs = true;
+  wsRunId = null;
+  pending.length = 0;
   if (ws) {
     ws.close();
     ws = null;

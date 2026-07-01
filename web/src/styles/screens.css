@@ -169,6 +169,20 @@
 .pempty { font-size: 12.5px; line-height: 1.5; color: var(--fg-faint); padding: 8px 2px; }
 .protogo { flex: none; }
 .protoprev { min-width: 0; min-height: 0; position: relative; }
+
+/* Deploy phase — target card, ledger rows, action stack. */
+.dtarget { flex: none; }
+.deploy-target { display: flex; flex-direction: column; gap: 4px; }
+.deploy-target .psub a { color: var(--amber-deep); text-decoration: none; }
+.deploy-target .psub a:hover { text-decoration: underline; }
+.prow.waiting { opacity: .55; }
+.prow.converting .psub, .prow.pushing .psub { color: var(--amber-deep); }
+.prow.live { border-color: color-mix(in srgb, var(--success) 45%, transparent); }
+.prow .dcheck { flex: none; accent-color: var(--amber-deep); width: 15px; height: 15px; }
+.prow .psub a { color: var(--amber-deep); text-decoration: none; }
+.prow .psub a:hover { text-decoration: underline; }
+.dactions { flex: none; display: flex; flex-direction: column; gap: 7px; }
+.dactions .btn { width: 100%; justify-content: center; }
 .protoprev .preview { height: 100%; }
 .protoblank { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 40px; text-align: center; background: radial-gradient(ellipse 70% 60% at 50% 38%, var(--surface) 0%, var(--canvas) 70%); }
 .protoblank .pb-star { font-size: 26px; color: var(--amber-deep); }
@@ -202,11 +216,11 @@
 .ovb-meta { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--hairline-soft); font: 500 11.5px/1 var(--mono); color: var(--fg-dim); }
 .ovb-banner { margin-bottom: 12px; padding: 9px 11px; border-radius: 9px; font: 500 12px/1.4 var(--display); }
 .ovb-banner.preview { background: rgba(232,185,94,0.12); color: var(--amber-deep); }
-.ovb-banner.done { background: rgba(95,150,105,0.12); color: var(--success); }
+.ovb-banner.done { background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success); }
 
 .ovb-badge { font: 600 9px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); border: 1px solid var(--hairline-soft); border-radius: 5px; padding: 4px 7px; white-space: nowrap; }
 .ovb-badge.run { color: var(--amber-deep); border-color: rgba(201,130,45,0.4); background: rgba(232,185,94,0.14); }
-.ovb-badge.done { color: var(--success); border-color: rgba(45,140,90,0.35); }
+.ovb-badge.done { color: var(--success); border-color: color-mix(in srgb, var(--success) 35%, transparent); }
 
 /* task rows — category eyebrow above the title so titles own the full width */
 .ovb-task { display: flex; align-items: flex-start; gap: 11px; padding: 11px 13px; border-radius: 11px; border: 1px solid var(--hairline-soft); background: var(--bg); transition: box-shadow .3s var(--ease); }
@@ -248,7 +262,7 @@
 .rc-done { display: flex; align-items: center; gap: 6px; font: 500 10.5px/1.3 var(--mono); color: var(--success); margin-top: 7px; }
 .rc-view { font: 600 8px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--amber-deep); }
 .berror { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 20px; margin-bottom: 14px; border: 1px solid var(--hairline-soft); border-radius: 13px; background: var(--surface); }
-.berror .errmark { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(180,69,47,0.12); color: var(--danger, #b4452f); font-weight: 700; }
+.berror .errmark { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); font-weight: 700; }
 .berror .errmsg { color: var(--fg-dim); font-size: 13px; }
 
 /* --- projects home (landing gallery) --- */

@@ -7,9 +7,8 @@
 import { DurableObject } from "cloudflare:workers";
 import { getContainer } from "@cloudflare/containers";
 import type { Env } from "./index";
-import type { Message, PageCandidate, RailState, ScreenId, TaskItem, TemplatePage, VariantCard, VariantId } from "../state";
+import type { DeployPage, DeployState, Message, PageCandidate, RailState, ScreenId, TaskItem, TemplatePage, VariantCard, VariantId } from "../state";
 import type { ClientCommand, ServerEvent } from "../shared/protocol";
-import { createSession, sendUserMessage, streamEvents, type MaCreds } from "./managedAgents";
 import { callHaiku } from "./haiku";
 import {
   KNACK_PALETTE,
@@ -58,13 +57,14 @@ function deriveProject(url: string): string {
 // milestone LABEL (never on hardcoded phase meaning) so it absorbs pipeline
 // changes automatically. Bump PIPELINE_VERSION when the run flow changes
 // (parallel craft, phase reorders) so old-shape runs don't blend with new ones.
-const PIPELINE_VERSION = "serial-1";
+const PIPELINE_VERSION = "parallel-1";
 type EtaModel = { f: Record<string, number>; meanTotal: number; p10: number; p90: number; hasHistory: boolean };
-// Fallback when there's no matching history — fractions (elapsed_at(label)/total)
-// + bounds seeded from the measured hirslanden.ch prod run (~29 min, 2026-07-01).
+// Fallback when there's no matching history — parallel pipeline priors derived
+// from the measured serial run (~29 min: extract ~7m + direct ~6m + 3 crafts
+// serial ~16m → parallel ≈ extract + direct + 1 craft ≈ 16 min).
 const ETA_DEFAULTS: EtaModel = {
-  f: { brand_ready: 0.23, variants_ready: 0.92, variant_done: 0.97 },
-  meanTotal: 1740, p10: 12 * 60, p90: 45 * 60, hasHistory: false,
+  f: { brand_ready: 0.42, variants_ready: 0.6, variant_done: 0.95 },
+  meanTotal: 960, p10: 8 * 60, p90: 30 * 60, hasHistory: false,
 };
 // Iterate ETA: pooled median of past iteration durations (LLM-free, no similarity
 // index — one bucket per backend). Default until history accrues (seconds).
@@ -114,6 +114,20 @@ export class RunSession extends DurableObject<Env> {
   private addingVariant = false;
   private variantQueue: string[] = [];
   private templateInflight = 0;
+  // Parallel uplift: variant ids whose build workers are still in flight, and how
+  // many of them delivered. The run completes when the set drains (≥1 success).
+  private pendingBuilds: string[] = [];
+  private buildsSucceeded = 0;
+  // True when this run uses the split pipeline — its ONLY completion signal is
+  // the build fan-out draining; a stray `done` milestone from a worker (or the
+  // phase-1 model) must not finish the run early.
+  private parallelUplift = false;
+  // Deploy/rollout: the run's EDS push state (one code branch + one DA folder
+  // per project). Persisted so it survives eviction and reopen.
+  private deployState?: DeployState;
+  // Progress is monotonic — deterministic markers and model milestones interleave
+  // and must never pull the bar backwards.
+  private lastProgress = 0;
   // Dynamic ETA state (see PIPELINE_VERSION / ETA_DEFAULTS above).
   private etaModel: EtaModel | null = null;
   private startTs = 0;                            // run start (ms epoch) = MIN(run_events.ts)
@@ -167,6 +181,7 @@ export class RunSession extends DurableObject<Env> {
     if (this.realVariants?.variants?.length) server.send(JSON.stringify({ t: "panel.variants", sharedFixes: this.realVariants.sharedFixes, variants: this.realVariants.variants }));
     if (this.realPages.length) server.send(JSON.stringify({ t: "panel.pages", pages: this.realPages }));
     if (this.realTemplates.length) server.send(JSON.stringify({ t: "panel.templates", protoVariant: this.protoVariant ?? "", templates: this.realTemplates }));
+    if (this.deployState) server.send(JSON.stringify({ t: "panel.deploy", deploy: this.deployState }));
     // Stored rail events bake in run-time swatches; if we know the real palette,
     // resend the last rail corrected (display-only, not persisted).
     if (this.realPalette?.length) {
@@ -204,13 +219,8 @@ export class RunSession extends DurableObject<Env> {
   private async emit(ev: ServerEvent): Promise<void> {
     this.events.push(ev);
     const payload = JSON.stringify(ev);
-    for (const ws of this.sockets) {
-      try {
-        ws.send(payload);
-      } catch {
-        this.sockets.delete(ws);
-      }
-    }
+    // Persist BEFORE broadcasting — if the INSERT throws, a connected client
+    // must not have seen an event that a reopen can never replay.
     // Compute the next seq atomically from the table rather than trusting an
     // in-memory counter — the DO can emit on the ingest path (cold start),
     // across reconnects, or after a reopen, where this.seq would be stale and
@@ -221,6 +231,20 @@ export class RunSession extends DurableObject<Env> {
       .bind(this.runId, this.runId, payload, Date.now())
       .run();
     this.seq++; // keep in-memory counter advancing for message-id uniqueness
+    for (const ws of this.sockets) {
+      try {
+        ws.send(payload);
+      } catch {
+        this.sockets.delete(ws);
+      }
+    }
+  }
+
+  /** Emit a monotonic progress value (never backwards). */
+  private async bumpProgress(value: number): Promise<void> {
+    if (value <= this.lastProgress) return;
+    this.lastProgress = value;
+    await this.emit({ t: "progress", value });
   }
 
   private schedule(ms: number, fn: () => Promise<void> | void): void {
@@ -268,15 +292,19 @@ export class RunSession extends DurableObject<Env> {
     return this.startTs;
   }
 
+  /** Backend timing class — opus (bedrock/uplift) ≈tens of minutes vs cerebras
+   *  ≈minutes; never blend their totals when learning ETAs. */
+  private timingClass(): string[] {
+    return this.mode === "bedrock" || this.mode === "uplift" ? ["bedrock", "uplift"]
+      : this.mode ? [this.mode] : ["bedrock", "uplift"];
+  }
+
   /** Learn the milestone-fraction model from recent completed REAL runs. Reads
    *  result_json.timings (folded in on done); filters to the current pipeline
    *  version; falls back to ETA_DEFAULTS when there's no matching history. */
   private async learnEta(): Promise<EtaModel> {
     try {
-      // Backend-aware: opus (bedrock/uplift) ≈29m vs cerebras ≈minutes — never
-      // blend their totals. Learn only from the current run's timing class.
-      const cls = this.mode === "bedrock" || this.mode === "uplift" ? ["bedrock", "uplift"]
-        : this.mode ? [this.mode] : ["bedrock", "uplift"];
+      const cls = this.timingClass();
       const ph = cls.map(() => "?").join(",");
       const rows = await this.env.DB.prepare(
         `SELECT result_json FROM runs WHERE status='done' AND id != ? AND mode IN (${ph}) ORDER BY created_at DESC LIMIT 20`,
@@ -310,8 +338,7 @@ export class RunSession extends DurableObject<Env> {
    *  Falls back to ITER_ETA_DEFAULT until enough history accrues. */
   private async learnIterateEta(): Promise<{ median: number; p10: number; p90: number }> {
     try {
-      const cls = this.mode === "bedrock" || this.mode === "uplift" ? ["bedrock", "uplift"]
-        : this.mode ? [this.mode] : ["bedrock", "uplift"];
+      const cls = this.timingClass();
       const ph = cls.map(() => "?").join(",");
       const rows = await this.env.DB.prepare(
         `SELECT result_json FROM runs WHERE status='done' AND mode IN (${ph}) AND result_json LIKE '%iterMs%' ORDER BY created_at DESC LIMIT 30`,
@@ -387,10 +414,10 @@ export class RunSession extends DurableObject<Env> {
       .run();
 
     if (row?.mode === "cerebras") return this.runRuntime(url, "cerebras");
-    if (row?.mode === "bedrock") return this.runRuntime(url, "bedrock");
-    if (row?.mode === "uplift") return this.runUplift(url);
-    if (row?.mode === "agent" || row?.mode === "probe") return this.runAgent(url, row.mode === "probe");
-    return this.runScripted(url, runId);
+    if (row?.mode === "scripted") return this.runScripted(url, runId);
+    // bedrock (default) — legacy Managed-Agents modes (uplift/agent/probe) fold
+    // into the open-loop runtime, which replaced that path.
+    return this.runRuntime(url, "bedrock");
   }
 
   /* ---- M2 scripted demo run ---- */
@@ -448,157 +475,6 @@ export class RunSession extends DurableObject<Env> {
     });
   }
 
-  /* ---- M3+ real run: a Managed Agents session, streamed to the UI ---- */
-
-  private async runAgent(url: string, probe = false): Promise<void> {
-    const { ANTHROPIC_API_KEY, STARDUST_AGENT_ID, STARDUST_ENVIRONMENT_ID } = this.env;
-    await this.emit({ t: "run.started", runId: this.runId, url, projectName: this.project, seed: KNACK_SEED });
-    await this.emit({ t: "phase", phase: "prototype" });
-    await this.emit({ t: "tasks.init", tasks: [] });
-    await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock: "⏱ agent session · live" } });
-    await this.emit({ t: "screen", screen: "working" });
-
-    if (!ANTHROPIC_API_KEY || !STARDUST_AGENT_ID || !STARDUST_ENVIRONMENT_ID) {
-      await this.emit({
-        t: "message.append",
-        message: { id: "no-creds", role: "agent", lead: "Managed Agents not configured. Run agent/setup.mjs and restart dev (see agent/README.md)." },
-      });
-      await this.fail("missing Managed Agents credentials");
-      return;
-    }
-    const creds: MaCreds = { apiKey: ANTHROPIC_API_KEY, agentId: STARDUST_AGENT_ID, environmentId: STARDUST_ENVIRONMENT_ID };
-
-    // M3 connectivity check — proves session + tools + SSE relay without skills.
-    // M5 swaps this for: `Redesign ${url}. Run stardust:uplift <URL> to completion…`
-    const connectivityPrompt =
-      "Connectivity check from the stardust web app. In one short sentence, confirm you're running. " +
-      "Then create the file /mnt/session/outputs/hello.txt containing 'stardust online' and stop.";
-
-    // Skill-load probe (/?mode=probe) — cheap: just reads the baked SKILL.md and
-    // reports. No Playwright, no URL fetch, no redesign. Proves the brain can
-    // find, read, and understand the stardust skill before a full uplift.
-    const probePrompt =
-      "Skill-load probe — DO NOT run a redesign, DO NOT launch Playwright, DO NOT fetch any URL. " +
-      "The stardust skills are baked at /workspace/skills. Do exactly this:\n" +
-      "1) Run `ls /workspace/skills/stardust` to see the available skills.\n" +
-      "2) Read /workspace/skills/stardust/uplift/SKILL.md.\n" +
-      "3) Read the first heading of /workspace/skills/impeccable/SKILL.md.\n" +
-      "Then, as your FINAL message (this is required — write it as plain text in the chat, " +
-      "do not skip it), report your findings in this exact shape:\n" +
-      "• Skills found: <comma-separated list from step 1>\n" +
-      "• uplift: <2–3 sentences on what stardust:uplift does and the exact phase chain it runs>\n" +
-      "• impeccable: present — \"<the first heading text>\"\n" +
-      "Keep it tight, then stop.";
-
-    const prompt = probe ? probePrompt : connectivityPrompt;
-
-    try {
-      const sessionId = await createSession(creds, `stardust · ${this.project}`, { url });
-      await this.emit({ t: "message.append", message: { id: "sess", role: "agent", lead: `Session started — **${sessionId.slice(0, 8)}**. Working…` } });
-      await sendUserMessage(creds, sessionId, prompt);
-
-      for await (const ev of streamEvents(creds, sessionId)) {
-        if (ev.type === "agent.message") {
-          const content = (ev as { content?: { text?: string }[] }).content ?? [];
-          const text = content.map((b) => b.text ?? "").join("").trim();
-          if (text) await this.emit({ t: "message.append", message: { id: `m-${this.seq}`, role: "agent", lead: text } });
-        } else if (ev.type === "agent.tool_use") {
-          const name = (ev as { name?: string }).name ?? "tool";
-          await this.emit({ t: "message.append", message: { id: `t-${this.seq}`, role: "agent", lead: `› tool: **${name}**` } });
-        } else if (ev.type === "session.status_idle") {
-          await this.emit({ t: "message.append", message: { id: "fin", role: "agent", lead: "✓ Agent finished." } });
-          await this.emit({ t: "rail", rail: { swatches: KNACK_PALETTE, note: "session idle", clock: "⏱ done" } });
-          await this.emit({ t: "run.done" });
-          await this.env.DB.prepare("UPDATE runs SET status = 'done' WHERE id = ?").bind(this.runId).run();
-          break;
-        } else if (ev.type === "session.error") {
-          await this.fail(`session error: ${JSON.stringify((ev as { error?: unknown }).error ?? ev)}`);
-          break;
-        }
-      }
-    } catch (e) {
-      await this.emit({ t: "message.append", message: { id: "err", role: "agent", lead: `Run error: ${String((e as Error).message ?? e)}` } });
-      await this.fail(String(e));
-    }
-  }
-
-  /* ---- M5 real uplift run: stardust:uplift in the sandbox, screens driven by
-     milestones + artifacts the agent pushes to the ingest endpoints. The SSE
-     stream feeds only the conversation narration. ---- */
-
-  private async runUplift(url: string): Promise<void> {
-    this.uplift = true;
-    const { ANTHROPIC_API_KEY, STARDUST_AGENT_ID, STARDUST_ENVIRONMENT_ID } = this.env;
-
-    this.tasks = UPLIFT_TASKS.map((t) => ({ ...t }));
-    this.tasks[0].status = "run";
-    await this.emit({ t: "run.started", runId: this.runId, url, projectName: this.project, seed: "—" });
-    await this.emit({ t: "phase", phase: "prototype" });
-    await this.emit({ t: "tasks.init", tasks: this.tasks });
-    await this.emit({ t: "progress", value: 5 });
-    await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock: "⏱ uplift · live" } });
-    await this.emit({ t: "screen", screen: "working" });
-
-    if (!ANTHROPIC_API_KEY || !STARDUST_AGENT_ID || !STARDUST_ENVIRONMENT_ID) {
-      await this.emit({ t: "message.append", message: { id: "no-creds", role: "agent", lead: "Managed Agents not configured. Run agent/setup.mjs and restart dev." } });
-      return this.fail("missing Managed Agents credentials");
-    }
-    const creds: MaCreds = { apiKey: ANTHROPIC_API_KEY, agentId: STARDUST_AGENT_ID, environmentId: STARDUST_ENVIRONMENT_ID };
-
-    // Per-run ingest token — the agent authorizes its pushes with it.
-    const token = crypto.randomUUID().replace(/-/g, "");
-    await this.env.DB.prepare("UPDATE runs SET ingest_token = ? WHERE id = ?").bind(token, this.runId).run();
-
-    const base = this.env.INGEST_BASE ?? "http://host.docker.internal:5173";
-    const ingest = `${base}/api/ingest/${this.runId}`;
-    const prompt =
-      `Redesign ${url} for presales. Run stardust:uplift to completion, non-interactively.\n\n` +
-      `INGEST — push progress + deliverables here so the web UI updates live. ` +
-      `Add this header to every ingest call: Authorization: Bearer ${token}\n` +
-      `1) Milestones — POST ${ingest}/event with content-type application/json, one JSON object per ` +
-      `milestone, exactly the shapes defined in your system prompt (extract.started/seed/tensions/` +
-      `brand_ready, direct.variants_ready, prototype.variant_done, done). Send each the moment it happens.\n` +
-      `2) Deliverables — PUT ${ingest}/artifact/<relative-path> with the file bytes and a correct ` +
-      `content-type, preserving paths relative to /mnt/session/outputs (so brand-review.html, its ` +
-      `assets/*, the three home-*-proposed.html, and assets/thumb-{A,B,C}.png all resolve). Upload the ` +
-      `brand surface as soon as it exists, each variant as it finishes.\n` +
-      `Paths in milestone JSON must match the artifact paths you upload. Begin now.`;
-
-    try {
-      const sessionId = await createSession(creds, `stardust uplift · ${this.project}`, { url, runId: this.runId });
-      await this.emit({ t: "message.append", message: { id: "sess", role: "agent", lead: `Session started — **${sessionId.slice(0, 8)}**. Reading ${this.project}…` } });
-      await sendUserMessage(creds, sessionId, prompt);
-
-      for await (const ev of streamEvents(creds, sessionId)) {
-        if (ev.type === "agent.message") {
-          const content = (ev as { content?: { text?: string }[] }).content ?? [];
-          const text = content.map((b) => b.text ?? "").join("").trim();
-          if (text) await this.emit({ t: "message.append", message: { id: `m-${this.seq}`, role: "agent", lead: text } });
-        } else if (ev.type === "agent.tool_use") {
-          const name = (ev as { name?: string }).name ?? "tool";
-          await this.emit({ t: "message.append", message: { id: `t-${this.seq}`, role: "agent", lead: `› ${name}` } });
-        } else if (ev.type === "session.status_idle") {
-          // A turn boundary — NOT necessarily completion. The agent runs many
-          // turns; finish only once its {"phase":"done"} milestone has arrived
-          // (which sets this.finished via ingestEvent). Otherwise keep streaming.
-          if (this.finished) break;
-        } else if (ev.type === "session.error") {
-          await this.fail(`session error: ${JSON.stringify((ev as { error?: unknown }).error ?? ev)}`);
-          break;
-        }
-      }
-      // Stream closed (worker stopped) without an explicit done milestone — finalize.
-      if (!this.finished) {
-        await this.emit({ t: "message.append", message: { id: "fin", role: "agent", lead: "✓ stardust finished." } });
-        await this.emit({ t: "run.done" });
-        await this.env.DB.prepare("UPDATE runs SET status = 'done' WHERE id = ?").bind(this.runId).run();
-      }
-    } catch (e) {
-      await this.emit({ t: "message.append", message: { id: "err", role: "agent", lead: `Run error: ${String((e as Error).message ?? e)}` } });
-      await this.fail(String(e));
-    }
-  }
-
   /* ---- New-architecture run: open-loop runtime in the sandbox. backend selects
      the model provider (cerebras/Gemma or bedrock/Opus). The DO mints the ingest
      token, shows the working screen, asks the host runner to docker-run the
@@ -613,7 +489,7 @@ export class RunSession extends DurableObject<Env> {
     await this.emit({ t: "run.started", runId: this.runId, url, projectName: this.project, seed: "—" });
     await this.emit({ t: "phase", phase: "prototype" });
     await this.emit({ t: "tasks.init", tasks: this.tasks });
-    await this.emit({ t: "progress", value: 5 });
+    await this.bumpProgress(5);
     await this.emit({ t: "busy", value: true });
     await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock } });
     await this.emit({ t: "message.append", message: { id: "intro", role: "agent", lead: `On it — reading **${this.project}**, learning the brand, and composing directions.`, body: ["This normally takes a few minutes. I'll show the snapshot the moment it's ready."] } });
@@ -624,7 +500,12 @@ export class RunSession extends DurableObject<Env> {
     await this.env.DB.prepare("UPDATE runs SET ingest_token = ? WHERE id = ?").bind(token, this.runId).run();
 
     try {
-      await this.triggerRuntime({ runId: this.runId, url, token, backend });
+      // Parallel pipeline (bedrock): phase 1 stops after direct + bundles the
+      // workspace; the DO fans out one build worker per variant on bundle_ready.
+      // Cerebras (demo model) keeps the single-container serial run.
+      const stage = backend === "bedrock" ? "direct" : "";
+      this.parallelUplift = stage === "direct";
+      await this.triggerRuntime({ runId: this.runId, url, token, backend, ...(stage ? { stage } : {}) });
       await this.emit({ t: "message.append", message: { id: "sess", role: "agent", lead: `${label} runtime started — reading ${this.project}…` } });
     } catch (e) {
       await this.emit({ t: "message.append", message: { id: "no-runner", role: "agent", lead: "Couldn't start the runtime sandbox." } });
@@ -682,6 +563,12 @@ export class RunSession extends DurableObject<Env> {
     return `/api/artifacts/${this.runId}/${String(p).replace(/^\/+/, "")}`;
   }
 
+  /** The artifact file name behind a card's src URL (strips the ?v= cache
+   *  buster). Single home for a parse repeated across job dispatch paths. */
+  private static fileOfSrc(src: string): string {
+    return (src.split("?")[0].split("/").pop() ?? "").trim();
+  }
+
   private mapVariants(arr: unknown[]): VariantCard[] {
     return (arr ?? []).map((raw) => {
       const m = raw as { id: VariantId; title?: string; pitch?: string; whatif?: string; role?: string; file: string; thumb: string };
@@ -729,6 +616,7 @@ export class RunSession extends DurableObject<Env> {
     if (e.phase === "iterate") {
       if (e.event === "failed") {
         this.iterating = false;
+        await this.persistResult();
         await this.emit({ t: "busy", value: false });
         await this.emit({ t: "message.append", message: { id: `iterr-${this.seq}`, role: "agent", lead: `Couldn't apply that change${e.message ? ` — ${e.message}` : ""}. The variant is unchanged — try rephrasing.` } });
         const card = this.realVariants?.variants.find((v) => v.id === this.activeVariant) ?? this.realVariants?.variants.slice(-1)[0];
@@ -740,6 +628,7 @@ export class RunSession extends DurableObject<Env> {
         // Just clear the spinner; no hot-swap, no duration recorded.
         this.iterating = false;
         this.iterateStart = 0;
+        await this.persistResult();
         await this.emit({ t: "busy", value: false });
         const card = this.realVariants?.variants.find((v) => v.id === this.activeVariant) ?? this.realVariants?.variants.slice(-1)[0];
         await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card?.segLabel ?? "—", clock: "⏱ ready to iterate" }) });
@@ -757,11 +646,17 @@ export class RunSession extends DurableObject<Env> {
       return;
     }
 
-    // Post-run jobs (extra directions + the prototype phase) arrive after the run
-    // is done; a cold/evicted DO needs its result restored first so the variant
-    // list / pages / templates aren't clobbered.
-    if (e.phase === "variant" || e.phase === "template" || (e.phase === "extract" && e.event === "pages")) {
+    // Post-run jobs (extra directions + the prototype/deploy phases) arrive after
+    // the run is done; a cold/evicted DO needs its result restored first so the
+    // variant list / pages / templates / deploy state aren't clobbered.
+    if (e.phase === "variant" || e.phase === "template" || e.phase === "deploy" || (e.phase === "extract" && e.event === "pages")) {
       await this.rehydrateResult(runId);
+    }
+
+    // Deploy/rollout progress from the conversion job + the host publisher.
+    if (e.phase === "deploy") {
+      await this.onDeployEvent(e as { event?: string; slug?: string; url?: string; message?: string; pages?: string[]; live?: boolean });
+      return;
     }
 
     // Discovered pages (prototype phase pool) — deterministic, from the runtime.
@@ -813,12 +708,14 @@ export class RunSession extends DurableObject<Env> {
           await this.emit({ t: "message.append", message: { id: `tpl-${slug}-${this.seq}`, role: "agent", lead: `Page **${e.title || slug}** prototyped in variant ${this.protoVariant ?? ""}.` } });
         }
         await this.finishTemplate();
+        await this.continueRollout();
         return;
       }
       if (e.event === "page_failed") {
         if (slug) { this.upsertTemplate({ slug, title: e.title || slug, variant: this.protoVariant ?? "", status: "failed", message: e.message }); await this.persistResult(); await this.emitTemplates(); }
         await this.emit({ t: "message.append", message: { id: `tperr-${this.seq}`, role: "agent", lead: `Couldn't prototype ${e.title || slug || "that page"}${e.message ? ` — ${e.message}` : ""}.` } });
         await this.finishTemplate();
+        await this.continueRollout();
         return;
       }
       if (e.event === "answer") { await this.finishTemplate(); return; }
@@ -832,22 +729,27 @@ export class RunSession extends DurableObject<Env> {
     // merges, so partial state never nulls out what's already saved.
     if (!this.uplift) await this.rehydrateResult(runId);
 
-    const set = (id: string, status?: TaskItem["status"], detail?: string) => {
-      const t = this.tasks.find((x) => x.id === id);
-      if (!t) return;
-      // Monotonic: a `done` task never regresses. Milestones can arrive out of
-      // order (e.g. the agent emits `tensions` after `brand_ready`), which would
-      // otherwise flip an already-completed row back to spinning and strand it.
-      if (status && t.status !== "done") t.status = status;
-      if (detail) t.detail = detail;
-    };
-    const advance = async (doneId: string, nextId: string | null, progress: number, status?: string) => {
-      set(doneId, "done");
-      if (nextId) set(nextId, "run");
-      if (this.tasks.length) await this.emit({ t: "tasks.init", tasks: this.tasks });
-      await this.emit({ t: "progress", value: progress });
-      if (status) await this.emit({ t: "status", text: status });
-    };
+    const set = this.taskSet.bind(this);
+    const advance = this.taskAdvance.bind(this);
+
+    // Deterministic phase markers from the runtime's workspace watcher — advance
+    // the board the moment a phase's artifact lands instead of waiting for the
+    // model to emit its milestone (it batches them late). Board-only: the panel
+    // payloads still come from the real milestones.
+    if (e.phase === "watch" && e.event === "marker") {
+      const m = (ev as { marker?: string }).marker ?? "";
+      if (m === "rendered") await advance("crawl", "read", 20, "page captured");
+      else if (m === "brand_extracted") await advance("read", "extract", 35, "brand read");
+      else if (m === "brand_built") await advance("extract", "analyze", 52, "brand surface built");
+      else if (m === "directions") await advance("analyze", "generate", 70, "composing directions");
+      else if (m === "designs") {
+        set("generate", undefined, "A · B · C");
+        if (this.tasks.length) await this.emit({ t: "tasks.init", tasks: this.tasks });
+        await this.bumpProgress(78);
+        await this.emit({ t: "status", text: "three design systems written" });
+      }
+      return;
+    }
 
     if (e.phase === "extract" && e.event === "started") {
       await this.emit({ t: "status", text: "reading the site" });
@@ -881,37 +783,113 @@ export class RunSession extends DurableObject<Env> {
       await this.reestimateEta("variants_ready");
       await advance("analyze", "generate", 74, "three directions composed");
       await this.emit({ t: "message.append", message: { id: `var-${this.seq}`, role: "agent", lead: "Three directions ready." } });
+    } else if (e.phase === "direct" && e.event === "bundle_ready") {
+      // Phase 1's deterministic handoff: the workspace bundle is in R2 — fan
+      // out one build worker per direction (the parallel pipeline's phase 2).
+      await this.fanOutBuilds();
     } else if (e.phase === "prototype" && e.event === "variant_done") {
-      set("generate", "run");
+      set("generate", "done");
+      set("validate", "run");
       await this.emit({ t: "tasks.init", tasks: this.tasks });
       await this.emit({ t: "status", text: `variant ${e.variant ?? ""} rendered` });
-      await this.emit({ t: "progress", value: 88 });
+      const total = this.buildsSucceeded + this.pendingBuilds.length;
+      await this.bumpProgress(total > 0 ? Math.min(98, 80 + Math.round((18 * (this.buildsSucceeded + 1)) / total)) : 88);
       await this.reestimateEta("variant_done");
       if (e.variant) {
         const vc = this.realVariants?.variants.find((v) => v.id === e.variant);
         await this.emit({ t: "message.append", message: { id: `art-${e.variant}`, role: "agent", artifact: { kind: "variant", variant: e.variant as VariantId, label: `Variant ${e.variant}${vc ? ` — ${vc.segWord}` : ""}` } } });
       }
+      await this.buildSettled(e.variant, true);
+    } else if (e.phase === "prototype" && e.event === "variant_failed") {
+      await this.emit({ t: "message.append", message: { id: `bferr-${this.seq}`, role: "agent", lead: `Variant ${e.variant ?? ""}'s build failed${e.message ? ` — ${e.message}` : ""}.` } });
+      await this.buildSettled(e.variant, false);
     } else if (e.phase === "done") {
-      if (this.finished) return;
-      // Honest empty state: a real run that produced no variants (bot-wall /
-      // too-sparse brand) should say so, not fall back to demo cards.
-      if (this.uplift && !this.realVariants?.variants?.length) {
-        await this.emit({ t: "message.append", message: { id: `empty-${this.seq}`, role: "agent", lead: "I couldn't read enough of the brand to produce variants — the site may block crawlers or be too sparse. Try another URL." } });
-        return this.fail("No variants were produced.");
-      }
-      this.finished = true;
-      this.timings.done = Date.now() - (await this.runStartTs()); // total (learner reads this)
-      set("generate", "done");
-      set("validate", "done");
-      await this.persistResult();
-      if (this.tasks.length) await this.emit({ t: "tasks.init", tasks: this.tasks });
-      await this.emit({ t: "progress", value: 100 });
-      await this.emit({ t: "snapshot.ready" });
-      await this.emit({ t: "message.append", message: { id: `done-${this.seq}`, role: "agent", lead: "✓ Done — three variants ready. Open the snapshot." } });
-      await this.emit({ t: "busy", value: false });
-      await this.emit({ t: "run.done" });
-      await this.env.DB.prepare("UPDATE runs SET status = 'done' WHERE id = ?").bind(this.runId).run();
+      // A parallel run finishes ONLY when its build fan-out drains — a stray
+      // `done` from a worker or phase 1 must not complete it early.
+      if (this.parallelUplift && (this.pendingBuilds.length > 0 || this.buildsSucceeded === 0)) return;
+      await this.completeRun();
     }
+  }
+
+  /** Terminal success — reached via the serial pipeline's `done` milestone OR
+   *  when the parallel build fan-out drains with ≥1 variant delivered. */
+  private async completeRun(): Promise<void> {
+    if (this.finished) return;
+    // Honest empty state: a real run that produced no variants (bot-wall /
+    // too-sparse brand) should say so, not fall back to demo cards.
+    const n = this.realVariants?.variants?.length ?? 0;
+    if (this.uplift && !n) {
+      await this.emit({ t: "message.append", message: { id: `empty-${this.seq}`, role: "agent", lead: "I couldn't read enough of the brand to produce variants — the site may block crawlers or be too sparse. Try another URL." } });
+      return this.fail("No variants were produced.");
+    }
+    this.finished = true;
+    this.timings.done = Date.now() - (await this.runStartTs()); // total (learner reads this)
+    this.taskSet("generate", "done");
+    this.taskSet("validate", "done");
+    await this.persistResult();
+    if (this.tasks.length) await this.emit({ t: "tasks.init", tasks: this.tasks });
+    await this.bumpProgress(100);
+    await this.emit({ t: "snapshot.ready" });
+    await this.emit({ t: "message.append", message: { id: `done-${this.seq}`, role: "agent", lead: `✓ Done — ${n === 1 ? "the variant is" : `${n} variants`} ready. Open the snapshot.` } });
+    await this.emit({ t: "busy", value: false });
+    await this.emit({ t: "run.done" });
+    await this.env.DB.prepare("UPDATE runs SET status = 'done' WHERE id = ?").bind(this.runId).run();
+  }
+
+  /** Parallel uplift phase 2: start one build worker per direction. Idempotent
+   *  (a re-delivered bundle_ready won't double-spawn). */
+  private async fanOutBuilds(): Promise<void> {
+    if (this.finished || this.pendingBuilds.length || this.buildsSucceeded > 0) return;
+    const cards = this.realVariants?.variants ?? [];
+    if (!cards.length) return this.fail("The directions never arrived — can't build variants.");
+    const creds = await this.jobCreds();
+    if (!creds) return this.fail("runtime token missing for the build fan-out");
+    this.parallelUplift = true; // fan-out implies the split pipeline (survives eviction via builds.parallel)
+    this.pendingBuilds = cards.map((c) => c.id);
+    await this.persistResult();
+    this.taskSet("generate", "done");
+    this.taskSet("validate", "run");
+    if (this.tasks.length) await this.emit({ t: "tasks.init", tasks: this.tasks });
+    await this.emit({ t: "status", text: `building ${cards.length} variants in parallel` });
+    await this.bumpProgress(76);
+    await this.emit({ t: "message.append", message: { id: `fan-${this.seq}`, role: "agent", lead: `Directions locked — crafting **${cards.length} variants in parallel**.` } });
+    for (const c of cards) {
+      try {
+        await this.triggerRuntime({ runId: this.runId, token: creds.token, backend: creds.backend, mode: "build", jobId: `bld-${c.id}`, variantId: c.id, variantFile: RunSession.fileOfSrc(c.src) });
+      } catch (err) {
+        await this.emit({ t: "message.append", message: { id: `bstart-${this.seq}`, role: "agent", lead: `Couldn't start variant ${c.id}'s build (${(err as Error).message}).` } });
+        await this.buildSettled(c.id, false);
+      }
+    }
+  }
+
+  /** A build worker finished (or failed): drain the pending set; complete the
+   *  run when it empties — with whatever variants actually delivered. */
+  private async buildSettled(variant: string | undefined, ok: boolean): Promise<void> {
+    if (!this.pendingBuilds.length) return; // serial pipeline (or already drained)
+    this.pendingBuilds = variant ? this.pendingBuilds.filter((v) => v !== variant) : this.pendingBuilds.slice(1);
+    if (ok) this.buildsSucceeded += 1;
+    await this.persistResult();
+    if (this.pendingBuilds.length) return;
+    if (this.buildsSucceeded > 0) return this.completeRun();
+    return this.fail("None of the variant builds delivered.");
+  }
+
+  /** Mutate one board row (monotonic: a `done` task never regresses — milestones
+   *  and markers can arrive out of order). */
+  private taskSet(id: string, status?: TaskItem["status"], detail?: string): void {
+    const t = this.tasks.find((x) => x.id === id);
+    if (!t) return;
+    if (status && t.status !== "done") t.status = status;
+    if (detail) t.detail = detail;
+  }
+
+  private async taskAdvance(doneId: string, nextId: string | null, progress: number, status?: string): Promise<void> {
+    this.taskSet(doneId, "done");
+    if (nextId) this.taskSet(nextId, "run");
+    if (this.tasks.length) await this.emit({ t: "tasks.init", tasks: this.tasks });
+    await this.bumpProgress(progress);
+    if (status) await this.emit({ t: "status", text: status });
   }
 
   /** Persist the real result (brand + variants) so a finished run can be
@@ -922,7 +900,7 @@ export class RunSession extends DurableObject<Env> {
     // variants / palette that an earlier handler already saved.
     const row = await this.env.DB.prepare("SELECT result_json, mode FROM runs WHERE id = ?").bind(this.runId).first<{ result_json: string | null; mode: string | null }>();
     if (!this.mode && row?.mode) this.mode = row.mode; // survive eviction (start() may not have run this DO instance)
-    let cur: { brand?: unknown; variants?: unknown; palette?: unknown; startedAt?: number; timings?: unknown; iterMs?: unknown; pages?: unknown; templates?: unknown; protoVariant?: unknown } = {};
+    let cur: { brand?: unknown; variants?: unknown; palette?: unknown; startedAt?: number; timings?: unknown; iterMs?: unknown; pages?: unknown; templates?: unknown; protoVariant?: unknown; finished?: boolean; tasks?: unknown; builds?: unknown; iter?: unknown } = {};
     try { if (row?.result_json) cur = JSON.parse(row.result_json); } catch { /* ignore */ }
     // Fold the ETA timings in on completion (total present) → the learner reads
     // these; keep any prior timings for a mid-run persist.
@@ -940,6 +918,18 @@ export class RunSession extends DurableObject<Env> {
       pages: this.realPages.length ? this.realPages : (cur.pages ?? null),
       templates: this.realTemplates.length ? this.realTemplates : (cur.templates ?? null),
       protoVariant: this.protoVariant ?? cur.protoVariant ?? null,
+      // Eviction-survival state: terminal flag, the board rows, the parallel
+      // build fan-out, and an in-flight iteration (so a late milestone/artifact
+      // on a cold DO still completes correctly instead of double-finishing).
+      finished: this.finished || cur.finished || false,
+      tasks: this.tasks.length ? this.tasks : (cur.tasks ?? null),
+      builds: this.parallelUplift || this.pendingBuilds.length || this.buildsSucceeded > 0
+        ? { pending: this.pendingBuilds, ok: this.buildsSucceeded, parallel: this.parallelUplift }
+        : (cur.builds ?? null),
+      deploy: this.deployState ?? (cur as { deploy?: unknown }).deploy ?? null,
+      iter: this.iterating
+        ? { v: this.iterateVariant ?? null, f: this.iterateFile ?? null, start: this.iterateStart || 0 }
+        : null,
     });
     await this.env.DB.prepare("UPDATE runs SET result_json = ? WHERE id = ?").bind(result, this.runId).run();
   }
@@ -958,6 +948,11 @@ export class RunSession extends DurableObject<Env> {
         pages?: PageCandidate[] | null;
         templates?: TemplatePage[] | null;
         protoVariant?: string | null;
+        finished?: boolean;
+        tasks?: TaskItem[] | null;
+        builds?: { pending?: string[]; ok?: number; parallel?: boolean } | null;
+        iter?: { v?: string | null; f?: string | null; start?: number } | null;
+        deploy?: DeployState | null;
       };
       this.uplift = !!r.uplift;
       if (r.brand) this.realBrand = r.brand;
@@ -969,6 +964,20 @@ export class RunSession extends DurableObject<Env> {
       if (r.pages?.length && !this.realPages.length) this.realPages = r.pages;
       if (r.templates?.length && !this.realTemplates.length) this.realTemplates = r.templates;
       if (r.protoVariant && !this.protoVariant) this.protoVariant = r.protoVariant;
+      if (r.finished) this.finished = true;
+      if (Array.isArray(r.tasks) && r.tasks.length && !this.tasks.length) this.tasks = r.tasks;
+      if (r.builds && !this.pendingBuilds.length && !this.buildsSucceeded) {
+        this.pendingBuilds = r.builds.pending ?? [];
+        this.buildsSucceeded = r.builds.ok ?? 0;
+        if (r.builds.parallel) this.parallelUplift = true;
+      }
+      if (r.iter && !this.iterating) {
+        this.iterating = true;
+        this.iterateVariant = (r.iter.v ?? undefined) as VariantId | undefined;
+        this.iterateFile = r.iter.f ?? undefined;
+        this.iterateStart = r.iter.start ?? 0;
+      }
+      if (r.deploy && !this.deployState) this.deployState = r.deploy;
     } catch {
       /* ignore malformed */
     }
@@ -977,14 +986,17 @@ export class RunSession extends DurableObject<Env> {
   /** Called by the Worker when the sandbox agent uploads an artifact. */
   async ingestArtifact(runId: string, rel: string, _contentType: string): Promise<void> {
     if (!this.runId) this.runId = runId;
+    // A cold DO must restore the in-flight iteration (and variants) before it
+    // can recognize this artifact as an iteration completing.
+    if (!this.uplift) await this.rehydrateResult(runId);
     // R2 write is done by the Worker; if a proposed variant arrives while its
     // workspace is open, hot-swap the preview (M6 leans on this). For M5 we just
     // note the brand surface / variants landing.
-    if (/proposed\.html$/.test(rel) || /brand-review\.html$/.test(rel)) {
+    if (/(proposed|cinematic)\.html$/.test(rel) || /brand-review\.html$/.test(rel)) {
       // An in-flight iteration completes the instant its updated variant lands —
       // don't wait for the terminal iterate.done milestone (the agent can exit
       // without emitting it, which would strand the UI in "loading").
-      if (this.iterating && /proposed\.html$/.test(rel) && (!this.iterateFile || rel.includes(this.iterateFile))) {
+      if (this.iterating && /(proposed|cinematic)\.html$/.test(rel) && (!this.iterateFile || rel.includes(this.iterateFile))) {
         this.iterating = false;
         await this.hotSwapVariant(this.iterateVariant, this.iterateFile);
         return;
@@ -1107,6 +1119,9 @@ export class RunSession extends DurableObject<Env> {
     }
     if (cmd.t === "prototype") return this.runTemplates(cmd.slugs);
     if (cmd.t === "setProtoVariant") { this.protoVariant = cmd.variant; await this.emitTemplates(); return; }
+    if (cmd.t === "deploy") return this.runDeploy(cmd.slugs);
+    if (cmd.t === "golive") return this.runGoLive();
+    if (cmd.t === "rollout") return this.runRollout();
   }
 
   private async onSend(screen: ScreenId, text: string): Promise<void> {
@@ -1114,7 +1129,7 @@ export class RunSession extends DurableObject<Env> {
     if (screen === "workspace") return this.iterate(text);
     // Directions chat → explore a new direction; Prototype chat → render/ask about a page.
     if (screen === "variants") return this.runAddVariant(text);
-    if (screen === "prototype") return this.runTemplateChat(text);
+    if (screen === "prototype" || screen === "deploy") return this.runTemplateChat(text);
     this.schedule(550, () =>
       this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "On it — folding that into the work." } }),
     );
@@ -1135,13 +1150,9 @@ export class RunSession extends DurableObject<Env> {
       return;
     }
 
-    const file = (card.src.split("?")[0].split("/").pop() ?? "").trim();
-    const row = await this.env.DB.prepare("SELECT mode, ingest_token AS token FROM runs WHERE id = ?")
-      .bind(this.runId)
-      .first<{ mode: string | null; token: string | null }>();
-    const backend = row?.mode === "cerebras" ? "cerebras" : "bedrock";
-    const token = row?.token;
-    if (!token) {
+    const file = RunSession.fileOfSrc(card.src);
+    const creds = await this.jobCreds();
+    if (!creds) {
       await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "I can't re-render this run — its runtime token is missing. Try a fresh run." } });
       return;
     }
@@ -1156,10 +1167,12 @@ export class RunSession extends DurableObject<Env> {
     this.iterating = true;
     this.iterateVariant = card.id;
     this.iterateFile = file;
+    await this.persistResult(); // survives eviction — completion still hot-swaps
     try {
-      await this.triggerRuntime({ runId: this.runId, token, backend, mode: "iterate", instruction: text, variantId: card.id, variantFile: file });
+      await this.triggerRuntime({ runId: this.runId, token: creds.token, backend: creds.backend, mode: "iterate", instruction: text, variantId: card.id, variantFile: file });
     } catch (e) {
       this.iterating = false;
+      await this.persistResult();
       await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Couldn't start the re-render (${(e as Error).message}).` } });
       await this.emit({ t: "busy", value: false });
       await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card.segLabel, clock: "⏱ ready to iterate" }) });
@@ -1169,7 +1182,7 @@ export class RunSession extends DurableObject<Env> {
   /** Re-render finished — bump the active variant's src to force an iframe
    *  reload (R2 serves with a 5-min cache; a ?v= buster defeats it). */
   private async hotSwapVariant(id?: string, file?: string): Promise<void> {
-    if (!this.realVariants) return;
+    if (!this.realVariants?.variants?.length) return;
     this.iterVersion += 1;
     const variants = this.realVariants.variants.map((c) => {
       const match = (id && c.id === id) || (file && c.src.includes(file));
@@ -1178,6 +1191,7 @@ export class RunSession extends DurableObject<Env> {
     this.realVariants = { ...this.realVariants, variants };
     const active = (id as VariantId | undefined) ?? this.activeVariant ?? variants[variants.length - 1].id;
     const card = variants.find((c) => c.id === active) ?? variants[variants.length - 1];
+    await this.persistResult(); // clears the persisted in-flight iteration
     await this.emit({ t: "panel.workspace", activeVariant: active, variants });
     await this.emit({ t: "busy", value: false });
     // Record this iteration's wall-clock so the pooled iterate ETA self-calibrates.
@@ -1223,7 +1237,7 @@ export class RunSession extends DurableObject<Env> {
     }
     // Fork the variant the user is looking at (else the recommended, else last).
     const base = cards.find((v) => v.id === this.activeVariant) ?? cards.find((v) => v.recommended) ?? cards[cards.length - 1];
-    const baseFile = (base.src.split("?")[0].split("/").pop() ?? "").trim();
+    const baseFile = RunSession.fileOfSrc(base.src);
     const name = this.nextVariantId();
     this.addingVariant = true;
     await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `On it — a new direction (variant **${name}**), forked from ${base.id}: ${instruction}` } });
@@ -1273,7 +1287,7 @@ export class RunSession extends DurableObject<Env> {
     const variant = this.protoVariant ?? this.activeVariant ?? cards.find((v) => v.recommended)?.id ?? cards[0].id;
     const card = cards.find((v) => v.id === variant) ?? cards[0];
     this.protoVariant = card.id;
-    return { variant: card.id, file: (card.src.split("?")[0].split("/").pop() ?? "").trim() };
+    return { variant: card.id, file: RunSession.fileOfSrc(card.src) };
   }
 
   /** Prototype selected pages (from the picker) in the chosen direction — one
@@ -1323,6 +1337,219 @@ export class RunSession extends DurableObject<Env> {
     } catch (e) {
       await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Couldn't start that (${(e as Error).message}).` } });
       await this.finishTemplate();
+    }
+  }
+
+  /* ---- deploy / rollout: AEM Edge Delivery via DA -------------------------
+     One project = one code branch of the EDS repo + one DA content folder.
+     A "deploy" job (LLM, in the sandbox) converts prototypes → an _eds/ bundle;
+     the deterministic host publisher (runner /publish) pushes code + content,
+     previews, verifies, and optionally publishes live. -------------------- */
+
+  /** Per-site EDS conventions. The branch-host label <branch>--<site>--<org>
+   *  must fit DNS's 63 chars, so the project slug is trimmed to fit. */
+  private async edsConfig(): Promise<{ project: string; org: string; site: string; branch: string; previewHost: string }> {
+    const org = this.env.DA_ORG ?? "paolomoz";
+    const site = this.env.DA_SITE ?? "stardust-app-fable";
+    const row = await this.env.DB.prepare("SELECT url FROM runs WHERE id = ?").bind(this.runId).first<{ url: string }>();
+    const host = deriveProject(row?.url ?? "");
+    const raw = host.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "site";
+    const project = raw.slice(0, Math.max(8, 63 - (site.length + org.length + 4)));
+    return { project, org, site, branch: project, previewHost: `https://${project}--${site}--${org}.aem.page` };
+  }
+
+  private async emitDeploy(): Promise<void> {
+    if (!this.deployState) return;
+    await this.persistResult();
+    await this.emit({ t: "panel.deploy", deploy: this.deployState });
+  }
+
+  private setDeployPage(slug: string | undefined, patch: Partial<DeployPage>): void {
+    if (!this.deployState || !slug) return;
+    this.deployState.pages = this.deployState.pages.map((p) => (p.slug === slug ? { ...p, ...patch } : p));
+  }
+
+  /** Convert + push the selected pages ("home" + prototyped template slugs). */
+  private async runDeploy(slugs: string[], opts: { fromRollout?: boolean } = {}): Promise<void> {
+    if (this.deployState?.busy && !opts.fromRollout) {
+      await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "A deploy is already in flight — I'll be done shortly." } });
+      return;
+    }
+    const pin = this.protoVariantFile();
+    if (!pin) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Pick a direction first — deploy ships the selected variant." } }); return; }
+    const creds = await this.jobCreds();
+    if (!creds) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "I can't deploy this run — its runtime token is missing." } }); return; }
+    if (this.env.SANDBOX) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Deploy currently runs on the local environment only." } }); return; }
+
+    const cfg = await this.edsConfig();
+    const want = slugs.length ? slugs : ["home"];
+    const jobPages: { slug: string; title: string; file: string }[] = [];
+    for (const s of want) {
+      if (s === "home") jobPages.push({ slug: "home", title: "Home", file: pin.file });
+      else {
+        const t = this.realTemplates.find((x) => x.slug === s && x.status === "done");
+        if (t?.src) jobPages.push({ slug: s, title: t.title, file: RunSession.fileOfSrc(t.src) });
+      }
+    }
+    if (!jobPages.length) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Nothing deployable yet — prototype the pages first." } }); return; }
+
+    const prev = this.deployState;
+    const merged: DeployPage[] = [...(prev?.pages ?? [])];
+    for (const p of jobPages) {
+      const i = merged.findIndex((x) => x.slug === p.slug);
+      const row: DeployPage = { slug: p.slug, title: p.title, status: "converting" };
+      if (i >= 0) merged[i] = { ...merged[i], ...row };
+      else merged.push(row);
+    }
+    this.deployState = {
+      ...cfg,
+      variant: pin.variant,
+      live: prev?.live ?? false,
+      busy: true,
+      rollout: opts.fromRollout ? true : (prev?.rollout ?? false),
+      pages: merged,
+    };
+    await this.emitDeploy();
+    await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Converting **${jobPages.length} page${jobPages.length > 1 ? "s" : ""}** of variant ${pin.variant} into Edge Delivery blocks — branch \`${cfg.branch}\`, folder \`/${cfg.project}\`.` } });
+    await this.emit({ t: "busy", value: true });
+    await this.emit({ t: "eta", seconds: 8 * 60 + 90 * jobPages.length, startedAt: Date.now() });
+    await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", busy: true, clock: `⏱ converting to EDS` }) });
+    try {
+      await this.triggerRuntime({
+        runId: this.runId, token: creds.token, backend: creds.backend, mode: "deploy", jobId: "deploy",
+        project: cfg.project, org: cfg.org, site: cfg.site, branch: cfg.branch, previewHost: cfg.previewHost, pages: jobPages,
+      });
+    } catch (e) {
+      await this.onDeployEvent({ event: "failed", message: (e as Error).message });
+    }
+  }
+
+  /** Publish the already-deployed pages to aem.live. */
+  private async runGoLive(): Promise<void> {
+    const d = this.deployState;
+    if (!d || !d.pages.some((p) => p.status === "previewed" || p.status === "live")) {
+      await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Deploy to preview first — then I can take it live." } });
+      return;
+    }
+    d.busy = true;
+    for (const p of d.pages) if (p.status === "previewed") this.setDeployPage(p.slug, { status: "pushing" });
+    await this.emitDeploy();
+    await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Publishing **${d.project}** to aem.live…` } });
+    await this.emit({ t: "busy", value: true });
+    await this.triggerPublish(true);
+  }
+
+  /** Whole-site rollout: prototype every remaining discovered page, then deploy
+   *  the lot (live). Continues via continueRollout() as template jobs finish. */
+  private async runRollout(): Promise<void> {
+    if (this.deployState?.busy) {
+      await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "A deploy is already in flight — rollout will have to wait for it." } });
+      return;
+    }
+    const pin = this.protoVariantFile();
+    if (!pin) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Pick a direction first." } }); return; }
+    const cfg = await this.edsConfig();
+    const settled = new Set(this.realTemplates.filter((t) => t.status === "done" || t.status === "failed").map((t) => t.slug));
+    const todo = this.realPages.filter((p) => !settled.has(p.slug)).map((p) => p.slug);
+    this.deployState = {
+      ...cfg,
+      variant: pin.variant,
+      live: this.deployState?.live ?? false,
+      busy: true,
+      rollout: true,
+      pages: this.deployState?.pages ?? [],
+    };
+    await this.emitDeploy();
+    if (todo.length) {
+      await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Rolling out **the whole site** — prototyping ${todo.length} remaining page${todo.length > 1 ? "s" : ""} in variant ${pin.variant} first, then deploying everything live.` } });
+      await this.runTemplates(todo);
+      // If nothing actually started (all skipped), fall through to deploy now.
+      if (this.templateInflight === 0) await this.continueRollout();
+    } else {
+      await this.continueRollout();
+    }
+  }
+
+  /** Rollout continuation: once no discovered page is still unrendered, deploy
+   *  home + every prototyped page, live. Stateless — recomputed per event, so
+   *  it survives DO eviction. */
+  private async continueRollout(): Promise<void> {
+    const d = this.deployState;
+    if (!d?.rollout || !d.busy) return;
+    if (d.pages.some((p) => p.status === "converting" || p.status === "pushing")) return; // deploy job already running
+    const settled = new Set(this.realTemplates.filter((t) => t.status === "done" || t.status === "failed").map((t) => t.slug));
+    const remaining = this.realPages.filter((p) => !settled.has(p.slug));
+    if (remaining.length) return; // more prototypes still rendering
+    const slugs = ["home", ...this.realTemplates.filter((t) => t.status === "done").map((t) => t.slug)];
+    await this.runDeploy(slugs, { fromRollout: true });
+  }
+
+  /** Ask the host runner to run the deterministic EDS publisher. */
+  private async triggerPublish(live: boolean): Promise<void> {
+    const creds = await this.jobCreds();
+    if (!creds) return this.onDeployEvent({ event: "failed", message: "runtime token missing" });
+    const url = (this.env.RUNNER_URL ?? "http://localhost:8790/run").replace(/\/run$/, "/publish");
+    try {
+      const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: this.runId, token: creds.token, live }) });
+      if (!r.ok) throw new Error(`publisher ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    } catch (e) {
+      await this.onDeployEvent({ event: "failed", message: (e as Error).message });
+    }
+  }
+
+  /** deploy.* progress from the conversion job and the host publisher. */
+  private async onDeployEvent(e: { event?: string; slug?: string; url?: string; message?: string; pages?: string[]; live?: boolean }): Promise<void> {
+    const d = this.deployState;
+    if (!d) return;
+    if (e.event === "page_converted") {
+      this.setDeployPage(e.slug, { status: "converted" });
+      await this.emitDeploy();
+      await this.emit({ t: "status", text: `converted ${e.slug}` });
+      return;
+    }
+    if (e.event === "bundle_ready") {
+      for (const p of d.pages) if (p.status === "converting" || p.status === "converted") this.setDeployPage(p.slug, { status: "pushing" });
+      await this.emitDeploy();
+      await this.emit({ t: "message.append", message: { id: `dp-${this.seq}`, role: "agent", lead: `Blocks ready — pushing code to \`${d.branch}\` and content to DA…` } });
+      await this.triggerPublish(d.rollout || d.live);
+      return;
+    }
+    if (e.event === "code_pushed") { await this.emit({ t: "status", text: `code pushed to ${d.branch}` }); return; }
+    if (e.event === "page_pushed") { this.setDeployPage(e.slug, { status: "pushing" }); await this.emitDeploy(); return; }
+    if (e.event === "page_previewed") {
+      const cur = d.pages.find((p) => p.slug === e.slug);
+      this.setDeployPage(e.slug, { status: cur?.status === "live" ? "live" : "previewed", previewUrl: e.url });
+      await this.emitDeploy();
+      return;
+    }
+    if (e.event === "page_live") {
+      this.setDeployPage(e.slug, { status: "live", liveUrl: e.url });
+      d.live = true;
+      await this.emitDeploy();
+      return;
+    }
+    if (e.event === "published") {
+      d.busy = false;
+      if (d.rollout && e.live) d.rollout = false; // the rollout completed
+      await this.emitDeploy();
+      await this.emit({ t: "busy", value: false });
+      const home = `${d.previewHost}/${d.project}/`;
+      const liveHome = home.replace(".aem.page", ".aem.live");
+      await this.emit({ t: "message.append", message: { id: `dp-${this.seq}`, role: "agent", md: e.live
+        ? `✓ **Live** — the site is published.\n\n- Preview: ${home}\n- Live: ${liveHome}`
+        : `✓ **Deployed to preview** — ${home}\n\nSay "go live" (or hit the button) to publish.` } });
+      await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", clock: e.live ? "⏱ live" : "⏱ previewed" }) });
+      return;
+    }
+    if (e.event === "failed") {
+      for (const p of d.pages) if (p.status !== "previewed" && p.status !== "live") this.setDeployPage(p.slug, { status: "failed", message: e.message });
+      d.busy = false;
+      d.rollout = false;
+      await this.emitDeploy();
+      await this.emit({ t: "busy", value: false });
+      await this.emit({ t: "message.append", message: { id: `dperr-${this.seq}`, role: "agent", lead: `Deploy failed${e.message ? ` — ${e.message}` : ""}.` } });
+      await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", clock: "⏱ deploy failed" }) });
+      return;
     }
   }
 }

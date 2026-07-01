@@ -31,17 +31,18 @@ export interface Env {
   GITHUB_CLIENT_SECRET_DEV?: string;
   GITHUB_CLIENT_ID_PROD?: string;
   GITHUB_CLIENT_SECRET_PROD?: string;
-  // Managed Agents (from web/.dev.vars locally / secrets in prod). Optional:
-  // when absent, runs fall back to the scripted demo.
+  // Anthropic key — Haiku fallback for the suggest/ETA helpers.
   ANTHROPIC_API_KEY?: string;
-  STARDUST_AGENT_ID?: string;
-  STARDUST_ENVIRONMENT_ID?: string;
   // Base URL the sandbox container uses to reach this Worker's ingest endpoints.
   // Local dev (Docker Desktop): http://host.docker.internal:5174. Prod: the
   // public Worker origin.
   INGEST_BASE?: string;
   // Host runner that docker-runs the Cerebras/Gemma runtime (mode "cerebras").
   RUNNER_URL?: string;
+  // EDS deploy target (defaults: paolomoz / stardust-app-fable). One code
+  // branch + one DA folder per stardust project.
+  DA_ORG?: string;
+  DA_SITE?: string;
 }
 
 const WS_PATH = /^\/api\/runs\/([^/]+)\/ws$/;
@@ -189,10 +190,7 @@ export default {
       const runMode =
         mode === "demo" || mode === "scripted" ? "scripted"
         : mode === "cerebras" ? "cerebras"
-        : mode === "uplift" ? "uplift"
-        : mode === "agent" ? "agent"
-        : mode === "probe" ? "probe"
-        : "bedrock"; // default = real Opus-on-Bedrock run
+        : "bedrock"; // default = real Opus-on-Bedrock run (legacy agent modes fold in)
       const id = crypto.randomUUID();
       await env.DB.prepare("INSERT INTO runs (id, url, status, mode, user_id, created_at) VALUES (?, ?, 'pending', ?, ?, ?)")
         .bind(id, target, runMode, user.id, Date.now())
@@ -247,8 +245,12 @@ export default {
       const key = `artifacts/${runId}/${rel}`;
       const contentType = request.headers.get("content-type") ?? "application/octet-stream";
       await env.BUCKET.put(key, request.body, { httpMetadata: { contentType } });
-      const stub = env.RUN.get(env.RUN.idFromName(runId));
-      await stub.ingestArtifact(runId, rel, contentType);
+      // Only page uploads mean anything to the DO (iteration completion, rail
+      // note) — don't pay a DO hop for every font/image/thumb asset.
+      if (/proposed\.html$|brand-review\.html$|cinematic\.html$/.test(rel)) {
+        const stub = env.RUN.get(env.RUN.idFromName(runId));
+        await stub.ingestArtifact(runId, rel, contentType);
+      }
       return Response.json({ ok: true, key });
     }
 

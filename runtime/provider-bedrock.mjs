@@ -28,8 +28,12 @@ export function makeBedrockProvider({ region = DEFAULT_REGION, model = DEFAULT_M
         // High cap: a single write_file of a full HTML page is emitted as tool-call
         // arguments and must not be truncated, or the file lands empty.
         max_tokens: 32000,
-        ...(system ? { system } : {}),
-        messages: msgs,
+        // Prompt caching: a static breakpoint after the system prompt (caches
+        // tools + system once) and a moving breakpoint on the last message (each
+        // turn re-reads the whole conversation prefix from cache instead of
+        // re-prefilling it — the loop history grows to millions of tokens).
+        ...(system ? { system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }] } : {}),
+        messages: markCacheTail(msgs),
         ...(tools?.length ? { tools: tools.map(toAnthropicTool) } : {}),
       };
       const res = await fetchRetry(url, {
@@ -41,6 +45,24 @@ export function makeBedrockProvider({ region = DEFAULT_REGION, model = DEFAULT_M
       return fromAnthropic(await res.json());
     },
   };
+}
+
+/** Attach the moving cache breakpoint to the final content block of the last
+ *  message (string content is normalized to a text block first). */
+function markCacheTail(msgs) {
+  if (!msgs.length) return msgs;
+  const last = msgs[msgs.length - 1];
+  let content = last.content;
+  if (typeof content === "string") {
+    if (!content) return msgs;
+    content = [{ type: "text", text: content }];
+  } else if (!Array.isArray(content) || !content.length) {
+    return msgs;
+  } else {
+    content = content.slice();
+  }
+  content[content.length - 1] = { ...content[content.length - 1], cache_control: { type: "ephemeral" } };
+  return [...msgs.slice(0, -1), { ...last, content }];
 }
 
 function toAnthropicTool(t) {

@@ -34,9 +34,17 @@ export function working(state: RunState, app: App): Screen {
   wireActions(el, app);
 
   let latest = state;
+  let boardHtml = "";
   const renderBoard = (s: RunState) => {
     const bw = el.querySelector<HTMLElement>("#boardwrap");
-    if (bw) bw.innerHTML = (s.error ? `<div class="berror"><div class="errmark">!</div><div class="errmsg">${esc(s.error)}</div><button class="btn btn-primary" data-act="restart">Start over</button></div>` : "") + board(s);
+    if (!bw) return;
+    // Skip the innerHTML swap when nothing visible changed — the store ticks on
+    // every streamed event and a full re-render each tick drops hover/focus on
+    // the rail and restarts the spinners.
+    const html = (s.error ? `<div class="berror"><div class="errmark">!</div><div class="errmsg">${esc(s.error)}</div><button class="btn btn-primary" data-act="restart">Start over</button></div>` : "") + board(s);
+    if (html === boardHtml) return;
+    boardHtml = html;
+    bw.innerHTML = html;
   };
 
   const update = (s: RunState) => {
@@ -76,6 +84,8 @@ export function wireActions(el: HTMLElement, app: App): void {
       case "dashboard": app.goView("working"); break;
       case "phase-uplift": app.goUplift(); break;
       case "phase-prototype": app.goPrototype(); break;
+      case "phase-deploy": app.goDeploy(); break;
+      case "phase-rollout": app.goDeploy(); break;
       case "view-working": app.goView("working"); break;
       case "view-brand": app.goView("brand"); break;
       case "view-variants": app.goView("variants"); break;
@@ -88,7 +98,7 @@ export function wireActions(el: HTMLElement, app: App): void {
       case "back-working": app.goView("working"); break;
       case "back-brand": app.goView("brand"); break;
       case "open-C": app.openVariant("C"); break;
-      case "deploy": /* future rung */ break;
+      case "deploy": app.goDeploy(); break;
     }
   });
 }

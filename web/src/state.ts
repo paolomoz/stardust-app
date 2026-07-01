@@ -4,7 +4,7 @@
    Worker WebSocket. Keep this transport-agnostic.
    =========================================================================== */
 
-export type ScreenId = "landing" | "working" | "brand" | "variants" | "workspace" | "prototype";
+export type ScreenId = "landing" | "working" | "brand" | "variants" | "workspace" | "prototype" | "deploy";
 export type Phase = "prototype" | "deploy";
 export type TaskStatus = "done" | "run" | "wait";
 // Variant ids: the first three are A/B/C; extra directions generated from chat
@@ -84,6 +84,31 @@ export interface TemplatePage {
   message?: string;      // failure reason
 }
 
+/** One page in the deploy/rollout ladder — converted to EDS, pushed to DA,
+ *  previewed on aem.page, optionally live on aem.live. */
+export interface DeployPage {
+  slug: string;
+  title: string;
+  status: "converting" | "converted" | "pushing" | "previewed" | "live" | "failed";
+  previewUrl?: string;
+  liveUrl?: string;
+  message?: string;      // failure reason
+}
+
+/** The run's EDS deployment — one project = one code branch + one DA folder. */
+export interface DeployState {
+  project: string;       // per-site slug (branch name + DA folder)
+  org: string;
+  site: string;
+  branch: string;
+  previewHost: string;   // https://<branch>--<site>--<org>.aem.page
+  variant: string;       // the direction being shipped
+  live: boolean;         // pages have been published to aem.live
+  busy: boolean;         // a deploy/rollout job is in flight
+  rollout: boolean;      // a whole-site rollout is in progress
+  pages: DeployPage[];
+}
+
 export interface RailState {
   swatches: string[];
   signature?: string;
@@ -123,6 +148,7 @@ export interface RunState {
   templates: TemplatePage[];       // prototype phase: page prototypes (queued/done)
   protoVariant?: string;           // prototype phase: the pinned direction (variant id)
   protoActive?: string;            // prototype phase: the page slug shown in the preview
+  deploy?: DeployState;            // deploy/rollout phase: EDS push state
 }
 
 type Listener = (s: RunState) => void;
@@ -157,6 +183,7 @@ function initial(): RunState {
     templates: [],
     protoVariant: undefined,
     protoActive: undefined,
+    deploy: undefined,
   };
 }
 

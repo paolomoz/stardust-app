@@ -51,4 +51,12 @@ export interface App {
   setProtoVariant(variant: VariantId): void;
   /** Prototype phase: show a prototyped page in the preview (client-only). */
   setProtoActive(slug: string): void;
+  /** Enter the deploy/rollout phase (ship to AEM Edge Delivery). */
+  goDeploy(): void;
+  /** Deploy the given pages ("home" + template slugs) to the EDS preview. */
+  deployPages(slugs: string[]): void;
+  /** Publish the deployed pages to aem.live. */
+  goLive(): void;
+  /** Whole-site rollout: prototype every remaining page, then deploy it live. */
+  rollout(): void;
 }

@@ -88,6 +88,23 @@ function phases(s: RunState): Phase[] {
   if (s.tensions.length) upliftMeta.push(`${s.tensions.length} tensions`);
   if (s.variants.length) upliftMeta.push(`${s.variants.length} variants`);
 
+  // Deploy column reflects the real EDS push once it starts.
+  const d = s.deploy;
+  const stMap: Record<string, Row["status"]> = { converting: "run", converted: "run", pushing: "run", previewed: "done", live: "done", failed: "wait" };
+  const deployRows: Row[] = d?.pages.length
+    ? d.pages.map((p) => ({
+        cat: p.status === "live" ? "LIVE" : p.status === "previewed" ? "PREVIEW" : p.status === "failed" ? "FAILED" : "PUSH",
+        kind: "generate",
+        title: p.title,
+        detail: p.status === "failed" ? (p.message ?? "failed") : p.status,
+        status: stMap[p.status] ?? "wait",
+      }))
+    : FUTURE.deploy.rows;
+  const deployDone = !!d?.pages.length && d.pages.every((p) => p.status === "previewed" || p.status === "live");
+  const deployStatus: Phase["status"] = d?.pages.length ? (deployDone && !d.busy ? "done" : "active") : "future";
+  const liveCount = d?.pages.filter((p) => p.status === "live").length ?? 0;
+  const rolloutStatus: Phase["status"] = d?.rollout ? "active" : d && liveCount === d.pages.length && liveCount > 0 ? "done" : "future";
+
   return [
     { id: "uplift", label: "Uplift", sub: host, status: upliftDone ? "done" : "active", rows: upliftRows,
       flow: FUTURE.uplift.flow,
@@ -97,8 +114,15 @@ function phases(s: RunState): Phase[] {
       flow: FUTURE.prototype.flow,
       doneSummary: s.templates.length ? `${s.templates.length} pages${s.protoVariant ? ` · variant ${s.protoVariant}` : ""}` : "pages prototyped",
       meta: [] },
-    { id: "deploy", label: "Deploy", sub: "to AEM", status: "future", rows: FUTURE.deploy.rows, flow: FUTURE.deploy.flow, doneSummary: "preview URLs live", meta: [] },
-    { id: "rollout", label: "Rollout", sub: "the whole site", status: "future", rows: FUTURE.rollout.rows, flow: FUTURE.rollout.flow, doneSummary: "site live", meta: [] },
+    { id: "deploy", label: "Deploy", sub: d ? `${d.branch} · aem.page` : "to AEM", status: deployStatus, rows: deployRows,
+      flow: FUTURE.deploy.flow,
+      doneSummary: d?.pages.length ? `${d.pages.length} page${d.pages.length > 1 ? "s" : ""} ${d.live ? "live" : "previewed"}` : "preview URLs live",
+      meta: d ? [`branch ${d.branch}`, `/${d.project}`] : [] },
+    { id: "rollout", label: "Rollout", sub: "the whole site", status: rolloutStatus,
+      rows: d?.rollout
+        ? [{ cat: "ROLLOUT", kind: "generate", title: "Prototyping + deploying every page", detail: `${liveCount} of ${(s.pageCandidates.length || d.pages.length) + 1} live`, status: "run" }]
+        : FUTURE.rollout.rows,
+      flow: FUTURE.rollout.flow, doneSummary: "site live", meta: [] },
     { id: "audit", label: "Audit", sub: "score the result", status: "future", rows: FUTURE.audit.rows, flow: FUTURE.audit.flow, doneSummary: "scored", meta: [] },
   ];
 }

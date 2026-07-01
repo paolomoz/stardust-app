@@ -50,6 +50,19 @@ function jobEnv(job) {
     e.PAGE_URL = job.pageUrl || "";
     e.PAGE_TITLE = job.pageTitle || "";
   }
+  if (job.mode === "build") {
+    e.VARIANT_ID = job.variantId || "A";
+    e.VARIANT_FILE = job.variantFile || "";
+  }
+  if (job.mode === "deploy") {
+    e.PROJECT = job.project || "";
+    if (job.org) e.DA_ORG = job.org;
+    if (job.site) e.DA_SITE = job.site;
+    if (job.branch) e.BRANCH = job.branch;
+    if (job.previewHost) e.PREVIEW_HOST = job.previewHost;
+    e.PAGES = JSON.stringify(job.pages || []);
+  }
+  if ((job.mode === "uplift" || !job.mode) && job.stage) e.UPLIFT_STAGE = job.stage;
   return e;
 }
 
@@ -59,6 +72,8 @@ function failureEvent(job, message) {
   if (job.mode === "iterate") return { phase: "iterate", event: "failed", variant: job.variantId, message };
   if (job.mode === "variant") return { phase: "variant", event: "failed", message };
   if (job.mode === "template") return { phase: "template", event: "page_failed", slug: job.slug || "", message };
+  if (job.mode === "build") return { phase: "prototype", event: "variant_failed", variant: job.variantId, message };
+  if (job.mode === "deploy") return { phase: "deploy", event: "failed", message };
   return { phase: "failed", message };
 }
 

@@ -9,11 +9,11 @@ import { wireActions } from "./working";
 function card(v: VariantCard): string {
   const moves = v.moves?.length
     ? `<ul class="moves"><li class="ml">${esc(v.movesLabel ?? "moves")}</li>${v.moves
-        .map((m) => `<li class="m"><span class="a">→</span> ${m}</li>`)
+        .map((m) => `<li class="m"><span class="a">→</span> ${esc(m)}</li>`)
         .join("")}</ul>`
     : "";
   const middle = v.whatif
-    ? `<div class="whatif"><span class="q">what if</span><span class="qt">${v.whatif}</span></div>`
+    ? `<div class="whatif"><span class="q">what if</span><span class="qt">${esc(v.whatif)}</span></div>`
     : v.faithful
       ? `<div class="faithful">${esc(v.faithful)}</div>`
       : "";
@@ -25,7 +25,7 @@ function card(v: VariantCard): string {
     <div class="thumb">${thumb}</div>
     <div class="meta">
       <div class="top"><span class="k">${esc(v.id)}</span><span class="ttl">${esc(v.title)}</span></div>
-      <p class="pitch">${v.pitch}</p>
+      <p class="pitch">${esc(v.pitch)}</p>
       ${middle}
       ${moves}
       <div class="role">${esc(v.role)}</div>
@@ -50,7 +50,7 @@ function addTile(): string {
 
 export function variants(state: RunState, app: App): Screen {
   const fixes = state.sharedFixes
-    .map((f) => `<span class="fixchip"><span class="ck">✓</span> ${f}</span>`)
+    .map((f) => `<span class="fixchip"><span class="ck">✓</span> ${esc(f)}</span>`)
     .join("");
   const el = h(`<div class="app">
     ${topbar(state, [])}

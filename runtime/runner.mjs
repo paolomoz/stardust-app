@@ -13,6 +13,7 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { publish } from "./eds-publish.mjs";
 
 const PORT = Number(process.env.RUNNER_PORT || 8790);
 const IMAGE = process.env.IMAGE || "stardust-sandbox";
@@ -29,6 +30,32 @@ const canceled = new Set();
 // plus any parallel variant/template jobs).
 const running = new Map(); // runId -> Set<containerName>
 
+// Concurrency cap: a burst of runs (or a fan-out of parallel jobs) must not
+// exhaust the Docker VM. Excess jobs queue FIFO and start as slots free up; a
+// canceled run's queued jobs are dropped at dequeue time.
+const MAX_CONCURRENCY = Number(process.env.RUNNER_MAX_CONCURRENCY || 10);
+let active = 0;
+const queue = []; // Array<() => void> — each launches one container
+
+function admit(launch) {
+  if (active < MAX_CONCURRENCY) {
+    active += 1;
+    launch();
+  } else {
+    queue.push(launch);
+    console.log(`[runner] at capacity (${active}/${MAX_CONCURRENCY}) — queued (${queue.length} waiting)`);
+  }
+}
+
+function release() {
+  active = Math.max(0, active - 1);
+  const next = queue.shift();
+  if (next) {
+    active += 1;
+    next();
+  }
+}
+
 const containerName = (runId, mode, jobId) =>
   jobId ? `stardust-${runId}-${jobId}` : `stardust-${runId}${mode === "iterate" ? "-iter" : ""}`;
 
@@ -37,6 +64,8 @@ function failureEvent(mode, variantId, slug, message) {
   if (mode === "iterate") return { phase: "iterate", event: "failed", variant: variantId, message };
   if (mode === "variant") return { phase: "variant", event: "failed", message };
   if (mode === "template") return { phase: "template", event: "page_failed", slug: slug || "", message };
+  if (mode === "build") return { phase: "prototype", event: "variant_failed", variant: variantId, message };
+  if (mode === "deploy") return { phase: "deploy", event: "failed", message };
   return { phase: "failed", message };
 }
 
@@ -81,7 +110,16 @@ function backendEnv(backend) {
   };
 }
 
-function startContainer({ runId, url, token, backend, mode, jobId, instruction, variantId, variantFile, variantName, slug, pageUrl, pageTitle }) {
+function startContainer(job) {
+  canceled.delete(job.runId);
+  admit(() => {
+    // Dropped while queued? (cancel arrived before a slot freed)
+    if (canceled.has(job.runId)) { release(); return; }
+    try { launchContainer(job); } catch (e) { release(); throw e; }
+  });
+}
+
+function launchContainer({ runId, url, token, backend, mode, stage, jobId, instruction, variantId, variantFile, variantName, slug, pageUrl, pageTitle, project, org, site, branch, previewHost, pages }) {
   const out = `${OUTPUTS_DIR}/${runId}`;
   // Post-run jobs (variant/template) run in their own isolated workspace so
   // parallel jobs never race on one stardust/ tree; the run + iterate reuse the
@@ -97,6 +135,16 @@ function startContainer({ runId, url, token, backend, mode, jobId, instruction, 
   if (mode === "iterate") { modeEnv.ITERATE = "1"; modeEnv.INSTRUCTION = instruction || ""; modeEnv.VARIANT_ID = variantId || "C"; modeEnv.VARIANT_FILE = variantFile || "home-C-cinematic.html"; }
   if (mode === "variant") { modeEnv.INSTRUCTION = instruction || ""; modeEnv.VARIANT_NAME = variantName || "D"; modeEnv.VARIANT_FILE = variantFile || "home-C-cinematic.html"; }
   if (mode === "template") { modeEnv.VARIANT_ID = variantId || "C"; modeEnv.VARIANT_FILE = variantFile || ""; modeEnv.INSTRUCTION = instruction || ""; modeEnv.SLUG = slug || ""; modeEnv.PAGE_URL = pageUrl || ""; modeEnv.PAGE_TITLE = pageTitle || ""; }
+  if (mode === "build") { modeEnv.VARIANT_ID = variantId || "A"; modeEnv.VARIANT_FILE = variantFile || ""; }
+  if (mode === "deploy") {
+    modeEnv.PROJECT = project || "";
+    if (org) modeEnv.DA_ORG = org;
+    if (site) modeEnv.DA_SITE = site;
+    if (branch) modeEnv.BRANCH = branch;
+    if (previewHost) modeEnv.PREVIEW_HOST = previewHost;
+    modeEnv.PAGES = JSON.stringify(pages || []);
+  }
+  if ((mode === "uplift" || !mode) && stage) modeEnv.UPLIFT_STAGE = stage;
 
   const be = backendEnv(backend);
   const { _label, ...envVars } = be;
@@ -120,11 +168,11 @@ function startContainer({ runId, url, token, backend, mode, jobId, instruction, 
     "--entrypoint", "node",
     IMAGE, "/workspace/runtime/agent.mjs",
   ];
-  canceled.delete(runId);
   if (!running.has(runId)) running.set(runId, new Set());
   running.get(runId).add(name);
   const child = spawn("docker", args, { stdio: "inherit" });
   child.on("exit", (code) => {
+    release();
     running.get(runId)?.delete(name);
     // Backstop: report a crash the runtime couldn't (OOM / hard kill). Skip
     // intentional cancels and clean exits.
@@ -138,6 +186,9 @@ function startContainer({ runId, url, token, backend, mode, jobId, instruction, 
   const label = mode === "iterate" ? `iterate(${variantId}: ${instruction})`
     : mode === "variant" ? `variant ${variantName}: ${instruction}`
     : mode === "template" ? `template ${slug || instruction} (variant ${variantId})`
+    : mode === "build" ? `build variant ${variantId}`
+    : mode === "deploy" ? `deploy ${project || ""} (${(pages || []).length} pages)`
+    : stage === "direct" ? "uplift phase 1 (extract+direct)"
     : "container";
   console.log(`[runner] spawned [${_label}] ${label} for run ${runId} (${url || ""})`);
 }
@@ -159,7 +210,8 @@ function cancelRun(runId) {
 createServer((req, res) => {
   const isRun = req.method === "POST" && req.url?.endsWith("/run");
   const isCancel = req.method === "POST" && req.url?.endsWith("/cancel");
-  if (!isRun && !isCancel) {
+  const isPublish = req.method === "POST" && req.url?.endsWith("/publish");
+  if (!isRun && !isCancel && !isPublish) {
     res.writeHead(404).end("not found");
     return;
   }
@@ -172,6 +224,23 @@ createServer((req, res) => {
       if (!runId) throw new Error("runId required");
       if (isCancel) {
         cancelRun(runId);
+      } else if (isPublish) {
+        // Deterministic EDS transport — pushes the run's _eds/ bundle to the
+        // code branch + DA + preview (+ live). No container, no LLM.
+        if (!token) throw new Error("token required");
+        if (!process.env.DA_TOKEN) throw new Error("DA_TOKEN not set on the runner host");
+        void publish({
+          runId,
+          outputsDir: `${OUTPUTS_DIR}/${runId}`,
+          ingestBase: SELF_INGEST,
+          ingestToken: token,
+          daToken: process.env.DA_TOKEN,
+          live: !!job.live,
+          reposDir: `${OUTPUTS_DIR}/_eds-repos`,
+        }).then(
+          (r) => console.log(`[runner] publish ${runId}: ${r.ok ? "ok" : `failed — ${r.message}`}`),
+          (e) => console.error(`[runner] publish ${runId} crashed:`, e),
+        );
       } else {
         if (!token) throw new Error("token required");
         startContainer({ ...job, url: job.url || "", backend: job.backend || "bedrock" });
@@ -181,4 +250,4 @@ createServer((req, res) => {
       res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: String(e.message || e) }));
     }
   });
-}).listen(PORT, () => console.log(`[runner] listening on http://localhost:${PORT}  image=${IMAGE} outputs=${OUTPUTS_DIR}  backends=${[CEREBRAS_API_KEY && "cerebras", BEDROCK_API_KEY && "bedrock"].filter(Boolean).join(",")}`));
+}).listen(PORT, () => console.log(`[runner] listening on http://localhost:${PORT}  image=${IMAGE} outputs=${OUTPUTS_DIR}  backends=${[CEREBRAS_API_KEY && "cerebras", BEDROCK_API_KEY && "bedrock"].filter(Boolean).join(",")}  publish=${process.env.DA_TOKEN ? "da✓" : "da✗"}`));
