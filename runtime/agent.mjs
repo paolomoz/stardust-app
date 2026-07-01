@@ -103,11 +103,13 @@ try {
     onNarration: (t) => ingest.event({ type: "narration", text: t }).catch(() => {}),
     onTool: (name) => ingest.event({ type: "tool", name }).catch(() => {}),
   });
-  if (!done) {
-    await ingest.event(iterate
-      ? { phase: "iterate", event: "done", variant: variantId, file: variantFile }
-      : { phase: "done" }).catch(() => {});
-  }
+  // Always emit the terminal milestone at clean exit — unconditional + idempotent
+  // (the DO dedupes: done→`if(finished)return`, iterate→`if(!iterating)return`).
+  // Guards the case where the in-loop emit_milestone was made (done=true) but its
+  // ingest POST silently failed, which would otherwise strand the UI in "loading".
+  await ingest.event(iterate
+    ? { phase: "iterate", event: "done", variant: variantId, file: variantFile }
+    : { phase: "done" }).catch(() => {});
   // Snapshot the design context to R2 so a later iteration can restore it.
   if (!iterate) {
     for (const f of CTX_FILES) await ingest.uploadFrom(`_ctx/${f}`, `${ctxDir}/${f}`).catch(() => {});

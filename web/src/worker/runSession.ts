@@ -66,6 +66,9 @@ const ETA_DEFAULTS: EtaModel = {
   f: { brand_ready: 0.23, variants_ready: 0.92, variant_done: 0.97 },
   meanTotal: 1740, p10: 12 * 60, p90: 45 * 60, hasHistory: false,
 };
+// Iterate ETA: pooled median of past iteration durations (LLM-free, no similarity
+// index — one bucket per backend). Default until history accrues (seconds).
+const ITER_ETA_DEFAULT = { median: 90, p10: 30, p90: 360 };
 
 export class RunSession extends DurableObject<Env> {
   private sockets = new Set<WebSocket>();
@@ -90,6 +93,13 @@ export class RunSession extends DurableObject<Env> {
   // applies to; iterVersion cache-busts the iframe src on each re-render.
   private activeVariant?: VariantId;
   private iterVersion = 0;
+  // M6 iteration completion: an iteration is "done" the moment its updated
+  // variant file lands (ingestArtifact) — we don't depend on the agent emitting
+  // the terminal iterate.done milestone (it sometimes exits without it).
+  private iterating = false;
+  private iterateVariant?: VariantId;
+  private iterateFile?: string;
+  private iterateStart = 0; // ms epoch — for the iterate ETA anchor + duration record
   // Dynamic ETA state (see PIPELINE_VERSION / ETA_DEFAULTS above).
   private etaModel: EtaModel | null = null;
   private startTs = 0;                            // run start (ms epoch) = MIN(run_events.ts)
@@ -269,6 +279,39 @@ export class RunSession extends DurableObject<Env> {
       // Widen bounds a touch (few samples) so a slower/faster run isn't over-clamped.
       return { f, meanTotal: mean(secs), p10: Math.max(120, pct(secs, 0.1) * 0.7), p90: pct(secs, 0.9) * 1.3, hasHistory: true };
     } catch { return ETA_DEFAULTS; }
+  }
+
+  /** Iterate ETA (LLM-free): pooled median + percentiles of past iteration
+   *  durations for this backend class. No similarity matching — one bucket.
+   *  Falls back to ITER_ETA_DEFAULT until enough history accrues. */
+  private async learnIterateEta(): Promise<{ median: number; p10: number; p90: number }> {
+    try {
+      const cls = this.mode === "bedrock" || this.mode === "uplift" ? ["bedrock", "uplift"]
+        : this.mode ? [this.mode] : ["bedrock", "uplift"];
+      const ph = cls.map(() => "?").join(",");
+      const rows = await this.env.DB.prepare(
+        `SELECT result_json FROM runs WHERE status='done' AND mode IN (${ph}) AND result_json LIKE '%iterMs%' ORDER BY created_at DESC LIMIT 30`,
+      ).bind(...cls).all<{ result_json: string | null }>();
+      const all: number[] = [];
+      for (const row of rows.results ?? []) {
+        try { const a = JSON.parse(row.result_json || "{}").iterMs; if (Array.isArray(a)) for (const x of a) if (x > 0) all.push(x); } catch { /* */ }
+      }
+      if (all.length < 2) return ITER_ETA_DEFAULT;
+      const secs = all.map((x) => x / 1000).sort((a, b) => a - b);
+      const pct = (p: number) => secs[Math.min(secs.length - 1, Math.floor(p * secs.length))];
+      return { median: pct(0.5), p10: Math.max(20, pct(0.1) * 0.8), p90: pct(0.9) * 1.3 };
+    } catch { return ITER_ETA_DEFAULT; }
+  }
+
+  /** Append one iteration's wall-clock (ms) to result_json.iterMs so the pooled
+   *  iterate learner self-calibrates. */
+  private async persistIterTiming(ms: number): Promise<void> {
+    const row = await this.env.DB.prepare("SELECT result_json FROM runs WHERE id = ?").bind(this.runId).first<{ result_json: string | null }>();
+    let cur: Record<string, unknown> = {};
+    try { if (row?.result_json) cur = JSON.parse(row.result_json); } catch { /* */ }
+    const iterMs = Array.isArray(cur.iterMs) ? (cur.iterMs as number[]) : [];
+    iterMs.push(ms);
+    await this.env.DB.prepare("UPDATE runs SET result_json = ? WHERE id = ?").bind(JSON.stringify({ ...cur, iterMs }), this.runId).run();
   }
 
   /** t=0 prior: historical mean (LLM-free) when we have history, else the Haiku
@@ -656,12 +699,15 @@ export class RunSession extends DurableObject<Env> {
     // just report it and leave the variant usable; success hot-swaps the preview.
     if (e.phase === "iterate") {
       if (e.event === "failed") {
+        this.iterating = false;
         await this.emit({ t: "busy", value: false });
         await this.emit({ t: "message.append", message: { id: `iterr-${this.seq}`, role: "agent", lead: `Couldn't apply that change${e.message ? ` — ${e.message}` : ""}. The variant is unchanged — try rephrasing.` } });
         const card = this.realVariants?.variants.find((v) => v.id === this.activeVariant) ?? this.realVariants?.variants.slice(-1)[0];
         await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card?.segLabel ?? "—", clock: "⏱ ready to iterate" }) });
         return;
       }
+      if (!this.iterating) return; // already completed on artifact arrival (dedupe)
+      this.iterating = false;
       await this.hotSwapVariant(e.variant, e.file);
       return;
     }
@@ -769,7 +815,7 @@ export class RunSession extends DurableObject<Env> {
     // variants / palette that an earlier handler already saved.
     const row = await this.env.DB.prepare("SELECT result_json, mode FROM runs WHERE id = ?").bind(this.runId).first<{ result_json: string | null; mode: string | null }>();
     if (!this.mode && row?.mode) this.mode = row.mode; // survive eviction (start() may not have run this DO instance)
-    let cur: { brand?: unknown; variants?: unknown; palette?: unknown; startedAt?: number; timings?: unknown } = {};
+    let cur: { brand?: unknown; variants?: unknown; palette?: unknown; startedAt?: number; timings?: unknown; iterMs?: unknown } = {};
     try { if (row?.result_json) cur = JSON.parse(row.result_json); } catch { /* ignore */ }
     // Fold the ETA timings in on completion (total present) → the learner reads
     // these; keep any prior timings for a mid-run persist.
@@ -783,6 +829,7 @@ export class RunSession extends DurableObject<Env> {
       palette: this.realPalette ?? cur.palette ?? null,
       startedAt: this.startTs || cur.startedAt || null,
       timings,
+      iterMs: cur.iterMs ?? undefined, // preserved; appended by persistIterTiming
     });
     await this.env.DB.prepare("UPDATE runs SET result_json = ? WHERE id = ?").bind(result, this.runId).run();
   }
@@ -818,6 +865,14 @@ export class RunSession extends DurableObject<Env> {
     // workspace is open, hot-swap the preview (M6 leans on this). For M5 we just
     // note the brand surface / variants landing.
     if (/proposed\.html$/.test(rel) || /brand-review\.html$/.test(rel)) {
+      // An in-flight iteration completes the instant its updated variant lands —
+      // don't wait for the terminal iterate.done milestone (the agent can exit
+      // without emitting it, which would strand the UI in "loading").
+      if (this.iterating && /proposed\.html$/.test(rel) && (!this.iterateFile || rel.includes(this.iterateFile))) {
+        this.iterating = false;
+        await this.hotSwapVariant(this.iterateVariant, this.iterateFile);
+        return;
+      }
       await this.emit({ t: "rail", rail: { swatches: this.realPalette ?? [], busy: true, clock: `⏱ received ${rel.split("/").pop()}` } });
     }
   }
@@ -968,12 +1023,18 @@ export class RunSession extends DurableObject<Env> {
 
     await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `On it — re-rendering variant **${card.id}**: ${text}` } });
     await this.emit({ t: "busy", value: true });
-    void this.estimateEta("iterate", text).then((seconds) => this.emit({ t: "eta", seconds })).catch(() => {});
+    this.iterateStart = Date.now();
+    // Pooled-median iterate ETA (LLM-free), anchored at the iterate start.
+    void this.learnIterateEta().then((m) => this.emit({ t: "eta", seconds: Math.round(Math.min(m.p90, Math.max(m.p10, m.median))), startedAt: this.iterateStart })).catch(() => {});
     await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card.segLabel, busy: true, clock: `⏱ re-rendering ${card.id}` }) });
 
+    this.iterating = true;
+    this.iterateVariant = card.id;
+    this.iterateFile = file;
     try {
       await this.triggerRuntime({ runId: this.runId, token, backend, mode: "iterate", instruction: text, variantId: card.id, variantFile: file });
     } catch (e) {
+      this.iterating = false;
       await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Couldn't start the re-render (${(e as Error).message}).` } });
       await this.emit({ t: "busy", value: false });
       await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card.segLabel, clock: "⏱ ready to iterate" }) });
@@ -994,6 +1055,8 @@ export class RunSession extends DurableObject<Env> {
     const card = variants.find((c) => c.id === active) ?? variants[variants.length - 1];
     await this.emit({ t: "panel.workspace", activeVariant: active, variants });
     await this.emit({ t: "busy", value: false });
+    // Record this iteration's wall-clock so the pooled iterate ETA self-calibrates.
+    if (this.iterateStart) { await this.persistIterTiming(Date.now() - this.iterateStart); this.iterateStart = 0; }
     await this.emit({ t: "message.append", message: { id: `it-${this.seq}`, role: "agent", lead: `Done — re-rendered variant **${active}**. Switch variants or ask for another change.` } });
     await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card.segLabel, clock: "⏱ re-rendered" }) });
   }
