@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.2.0",
   "type": "module",
-  "description": "stardust web app — conversational-first redesign studio (Cloudflare Worker + SPA)",
+  "description": "stardust web app \u2014 conversational-first redesign studio (Cloudflare Worker + SPA)",
   "scripts": {
     "dev": "vite --host",
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.worker.json --noEmit && vite build",
@@ -11,7 +11,8 @@
     "db:migrate": "wrangler d1 migrations apply stardust-web-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply stardust-web-db --remote",
     "seed": "./scripts/seed-r2.sh",
-    "deploy": "vite build && wrangler deploy"
+    "deploy": "vite build && wrangler deploy",
+    "smoke": "node ../scripts/smoke.mjs"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.42.3",

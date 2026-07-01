@@ -184,13 +184,20 @@ CLOUDFLARE_ENV=production npx wrangler deploy   # reuses cached image (fast)
   populates gallery/workspace from `result_json` (the panel push covers runs
   whose events predate the fix). virginatlantic's manual backfill stands.
 
-### 6. Post-deploy verification
-- `/api/me` 200 · `/api/_debug` 404 · `/api/_dev/login` 404 (after removal).
-- OAuth google/github redirect.
-- Reopen festool → new nav: Overview board; uplift rung → Brand/Directions/
-  Workspace populate; clicking a variant opens the prototype.
-- `?mode=demo` → previews render.
-- (Optional, $) one small real run end-to-end.
+### 6. Post-deploy verification — run the smoke test
+```
+cd web && npm run smoke                       # Tier 1 (public) vs prod
+npm run smoke -- <baseUrl> <viewableRunId>    # + Tier 2 (suggest + WS panel push)
+```
+`scripts/smoke.mjs` (dependency-free) checks: `/` 200 · `/api/me` · Google/GitHub
+302 · `/api/_dev/login` 404 · demo static assets · and (Tier 2, needs a
+legacy/null-owner run) `/suggest` non-empty via Bedrock + WS `panel.variants`.
+Exits non-zero on failure. Tier 2 needs a **viewable** run — either keep one
+completed run as a null-owner fixture, or temporarily null a run's `user_id`
+(and restore it) for the check.
+
+Then the one manual step: **sign in on prod and click through the UI once**
+(project switcher, tabs, footer, suggestion chips).
 
 ### 7. Already-handled prod specifics (verify, don't re-fix)
 - Containers get model keys via the job body (`modelEnv`) — deployed + working.
