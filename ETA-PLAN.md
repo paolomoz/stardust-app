@@ -137,5 +137,16 @@ f(brand_ready)=0.32, f(variants_ready)=0.53, f(variant_done)=0.68; E2E re-anchor
 Resolved open decisions: version-tag ✓; Haiku kept as no-history fallback ✓;
 timings in result_json (no migration) ✓; smoothing = server-side EMA ✓.
 
-NOT yet done: (a) a real paid run to watch primeEta live (simulation covers the
-same code path); (b) prod backfill + deploy + smoke + re-measure.
+✅ LIVE-VALIDATED on a real bedrock run (anthropic.com, actual 16.7m): primeEta
+prior 23.2m (LLM-free, not the old 45m clamp); re-anchored 23.2→21.2→18.5→17.1m,
+converging to +2% of actual by mid-run; timings persisted (mode=bedrock) → feeds
+the learner. Two follow-up fixes from that run:
+- **Board monotonic** (`set()`): a `done` task never regresses — fixes rows
+  stranded "spinning" when the agent emits milestones out of order (it emitted
+  `tensions` after `brand_ready`, which had flipped "Brand surface" back to run).
+- **ETA `variant_done` never-up guard**: the last, highest-variance signal
+  (fires 0.57–0.98 of total) only pulls the estimate DOWN, so the bar can't jump
+  backward at the finish (the run's one overshoot: 17.4→20.1m at the end).
+
+NOT yet done: prod backfill (`node scripts/backfill-timings.mjs --remote`) +
+deploy + smoke + re-measure.

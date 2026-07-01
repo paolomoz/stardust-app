@@ -295,6 +295,10 @@ export class RunSession extends DurableObject<Env> {
     const elapsed = elapsedMs / 1000;
     let est = elapsed / f;
     if (this.lastEta > 0) est = 0.5 * est + 0.5 * this.lastEta; // glide, don't jerk
+    // variant_done is the last, highest-variance signal (fires 0.57–0.98 of total)
+    // and the run is nearly over by then — only let it pull the estimate DOWN, so
+    // the bar never jumps backward at the finish.
+    if (label === "variant_done" && this.lastEta > 0) est = Math.min(est, this.lastEta);
     est = Math.min(m.p90, Math.max(m.p10, est));
     est = Math.round(Math.max(elapsed + 5, est)); // never claim already-done
     this.lastEta = est;
@@ -678,7 +682,10 @@ export class RunSession extends DurableObject<Env> {
     const set = (id: string, status?: TaskItem["status"], detail?: string) => {
       const t = this.tasks.find((x) => x.id === id);
       if (!t) return;
-      if (status) t.status = status;
+      // Monotonic: a `done` task never regresses. Milestones can arrive out of
+      // order (e.g. the agent emits `tensions` after `brand_ready`), which would
+      // otherwise flip an already-completed row back to spinning and strand it.
+      if (status && t.status !== "done") t.status = status;
       if (detail) t.detail = detail;
     };
     const advance = async (doneId: string, nextId: string | null, progress: number, status?: string) => {
