@@ -147,6 +147,17 @@ now fold into the bedrock runtime.
 - `pages.test.mjs` — PASSED (12 candidates, dedupe/host/anchor rules).
 - Client + worker `tsc` clean; `vite build` clean; all runtime files
   `node --check` clean; image rebaked twice with baked-content verification.
-- First parallel run (wheelercat.com): phase 1 (extract+direct) live with
-  deterministic markers driving the board; fan-out/build timings recorded in
-  IMPROVEMENTS.md once complete.
+- **First parallel run (wheelercat.com, 2026-07-02):** page captured 0.5m →
+  brand read 4.5m (marker) → brand_ready 7.5m → "composing directions" 10.0m
+  (marker; the model's own milestone burst only came at 13.4m) → variants_ready
+  + bundle_ready + 3-worker fan-out at 13.4m → variants delivered at 20.3m (B),
+  21.0m (A), 31.1m (C, after a retry) → run done **31.1m**. One worker
+  terminated with a placeholder id and no upload — that surfaced two hardening
+  fixes now in place (R2-verified delivery + count-based drain + per-job
+  container logs), and the DO's re-dispatched C build recovered the run without
+  operator intervention in the UI. Excluding that retry, the pipeline's natural
+  time was **~21m** (builds ran 6.9–7.6m concurrently) vs ~24–27m serial for
+  this small site; the gap widens on craft-heavy sites where the serial build
+  block was ~18–20m.
+- Deterministic EDS transport smoke test (no LLM): branch push → forced Code
+  Sync → DA write (201) → preview verified live, first try.

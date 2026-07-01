@@ -795,9 +795,9 @@ export class RunSession extends DurableObject<Env> {
       const total = this.buildsSucceeded + this.pendingBuilds.length;
       await this.bumpProgress(total > 0 ? Math.min(98, 80 + Math.round((18 * (this.buildsSucceeded + 1)) / total)) : 88);
       await this.reestimateEta("variant_done");
-      if (e.variant) {
-        const vc = this.realVariants?.variants.find((v) => v.id === e.variant);
-        await this.emit({ t: "message.append", message: { id: `art-${e.variant}`, role: "agent", artifact: { kind: "variant", variant: e.variant as VariantId, label: `Variant ${e.variant}${vc ? ` — ${vc.segWord}` : ""}` } } });
+      const vc = this.realVariants?.variants.find((v) => v.id === e.variant);
+      if (e.variant && vc) {
+        await this.emit({ t: "message.append", message: { id: `art-${e.variant}`, role: "agent", artifact: { kind: "variant", variant: e.variant as VariantId, label: `Variant ${e.variant} — ${vc.segWord}` } } });
       }
       await this.buildSettled(e.variant, true);
     } else if (e.phase === "prototype" && e.event === "variant_failed") {
@@ -867,8 +867,22 @@ export class RunSession extends DurableObject<Env> {
    *  run when it empties — with whatever variants actually delivered. */
   private async buildSettled(variant: string | undefined, ok: boolean): Promise<void> {
     if (!this.pendingBuilds.length) return; // serial pipeline (or already drained)
-    this.pendingBuilds = variant ? this.pendingBuilds.filter((v) => v !== variant) : this.pendingBuilds.slice(1);
-    if (ok) this.buildsSucceeded += 1;
+    // Deterministic truth: a "done" only counts if the variant's page actually
+    // landed in R2 — a worker can terminate with a bogus/placeholder milestone
+    // (observed: variant "__none__", nothing uploaded).
+    const card = this.realVariants?.variants.find((v) => v.id === variant);
+    let delivered = ok && !!card;
+    if (delivered && card) {
+      const key = `artifacts/${this.runId}/${RunSession.fileOfSrc(card.src)}`;
+      delivered = !!(await this.env.BUCKET.head(key).catch(() => null));
+    }
+    // Drain by id when the worker identified itself; otherwise count-based
+    // (exactly one worker settled) so an unknown id can't wedge the run.
+    this.pendingBuilds = variant && this.pendingBuilds.includes(variant)
+      ? this.pendingBuilds.filter((v) => v !== variant)
+      : this.pendingBuilds.slice(1);
+    if (delivered) this.buildsSucceeded += 1;
+    else if (ok) await this.emit({ t: "message.append", message: { id: `bmiss-${this.seq}`, role: "agent", lead: `A build worker finished without delivering its page${variant ? ` (variant ${variant})` : ""} — not counting it.` } });
     await this.persistResult();
     if (this.pendingBuilds.length) return;
     if (this.buildsSucceeded > 0) return this.completeRun();

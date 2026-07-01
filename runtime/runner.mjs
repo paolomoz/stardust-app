@@ -11,7 +11,7 @@
    =========================================================================== */
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { createWriteStream, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { publish } from "./eds-publish.mjs";
 
@@ -170,7 +170,13 @@ function launchContainer({ runId, url, token, backend, mode, stage, jobId, instr
   ];
   if (!running.has(runId)) running.set(runId, new Set());
   running.get(runId).add(name);
-  const child = spawn("docker", args, { stdio: "inherit" });
+  // Per-job log file — containers are --rm, so this is the only place their
+  // stdout/stderr survives for post-mortems.
+  mkdirSync(`${OUTPUTS_DIR}/_logs`, { recursive: true });
+  const logStream = createWriteStream(`${OUTPUTS_DIR}/_logs/${name}.log`, { flags: "a" });
+  const child = spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
+  child.stdout.pipe(logStream);
+  child.stderr.pipe(logStream);
   child.on("exit", (code) => {
     release();
     running.get(runId)?.delete(name);
