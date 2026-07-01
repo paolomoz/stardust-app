@@ -159,6 +159,14 @@ export class RunSession extends DurableObject<Env> {
         server.send(JSON.stringify({ t: "rail", rail: { ...lastRail.rail, swatches: this.realPalette } }));
       }
     }
+    // Clear a stale spinner on reopen: a terminal run (done/error) that isn't
+    // actively iterating must not replay a `busy=true` whose matching
+    // `busy=false` never arrived (an iteration that crashed before uploading, or
+    // one that predates the completion fix). Display-only, not persisted.
+    if (!this.iterating) {
+      const st = await this.env.DB.prepare("SELECT status FROM runs WHERE id = ?").bind(runId).first<{ status: string }>();
+      if (st?.status === "done" || st?.status === "error") server.send(JSON.stringify({ t: "busy", value: false }));
+    }
 
     server.addEventListener("message", (e) => {
       try {
