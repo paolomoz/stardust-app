@@ -6,7 +6,7 @@ import { h, esc } from "../dom";
 import type { App, Screen } from "../controller";
 import type { RunState } from "../state";
 import { topbar, rail, syncRail } from "../components/shell";
-import { board } from "../components/board";
+import { board, setBoardPreview } from "../components/board";
 import { logout } from "../auth";
 
 const subRight = (s: RunState): string =>
@@ -33,15 +33,30 @@ export function working(state: RunState, app: App): Screen {
 
   wireActions(el, app);
 
-  const update = (s: RunState) => {
-    syncRail(el, s);
+  let latest = state;
+  const renderBoard = (s: RunState) => {
     const bw = el.querySelector<HTMLElement>("#boardwrap");
     if (bw) bw.innerHTML = (s.error ? `<div class="berror"><div class="errmark">!</div><div class="errmsg">${esc(s.error)}</div><button class="btn btn-primary" data-act="restart">Start over</button></div>` : "") + board(s);
+  };
+
+  const update = (s: RunState) => {
+    latest = s;
+    syncRail(el, s);
+    renderBoard(s);
     const sr = el.querySelector<HTMLElement>("#subRight");
     if (sr) sr.innerHTML = subRight(s);
     const stop = el.querySelector<HTMLButtonElement>("#stopBtn");
     if (stop && s.error) stop.disabled = true;
   };
+
+  // Rail rungs preview a phase in the focus panel without moving the run — a
+  // UI-only selection, so re-render the board subtree in place from local state.
+  el.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>("[data-act^='board-view-']");
+    if (!b || !el.contains(b)) return;
+    setBoardPreview(b.getAttribute("data-act")!.slice("board-view-".length));
+    renderBoard(latest);
+  });
 
   return { el, update };
 }
