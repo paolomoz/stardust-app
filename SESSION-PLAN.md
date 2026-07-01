@@ -119,8 +119,23 @@ guessing; enables redo/history. Pair with the conversation (memory) so you get
 - **ETA-PLAN** unaffected (iterate ETA already pooled-median).
 - **IMPROVEMENTS.md** prompt-caching item is a prerequisite cost lever here.
 
-## Current state
-Nothing executed. Iterations are stateless (cold container + file + `_ctx`).
-Recent iteration-reliability fixes (artifact-arrival completion, force-emit,
-pooled-median ETA, reopen guard) are in `webapp-build` (commits e72c02a…f6582a5)
-but are orthogonal to session state.
+## Current state — ✅ CORE IMPLEMENTED (Approach A, per-variant), local-first
+Phases 1–3 core done (runtime-side, no DO/UI change needed for the minimal slice):
+- `runtime/ingest.mjs`: `downloadJSON`/`uploadJSON` (R2 blob helpers).
+- `runtime/loop.mjs`: `initialMessages` param — resume a persisted conversation
+  instead of `[system, task]`.
+- `runtime/agent.mjs` (iterate mode): restore `_sessions/<variantId>.json` from R2
+  → append the new instruction as a follow-up turn → run → persist the updated
+  `messages` back. First iteration seeds via iterateTask; subsequent ones continue.
+- Local image rebuilt (`stardust-sandbox:latest`) so the runner picks it up.
+
+Scope = **per-variant** (session key `_sessions/<variantId>.json`, per-run R2
+prefix). Deferred (not needed to test memory): tool-result pruning, prompt
+caching, multi-conversation UI, deterministic file-versioning undo, seeding a
+variant's session from its build history (comes with parallel-craft).
+
+Test: on a variant, prompt a change, then "undo the last change" / "why did you do
+that?" — the agent should reason from its own prior turns (not re-derive).
+
+Prior iteration-reliability fixes (artifact-arrival completion, force-emit,
+pooled-median ETA, reopen guard) are in `webapp-build` (e72c02a…f6582a5).

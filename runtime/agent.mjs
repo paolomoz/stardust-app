@@ -68,6 +68,18 @@ const iterateTask =
 const task = iterate ? iterateTask : upliftTask;
 const iterateHint = `Finish the requested change to variant ${variantId}, upload the updated ${variantFile}, then call emit_milestone with phase "iterate" and event "done".`;
 
+// Per-variant conversation, persisted to R2 so iterations have memory across
+// prompts. When it exists, continue it by appending this instruction as a follow-
+// up turn (the agent sees its own prior edits + reasoning — enables real undo/
+// refine); the first iteration seeds it via iterateTask and we persist the result.
+const SESSION_KEY = `_sessions/${variantId}.json`;
+const iterateFollowup =
+  `Another change to the SAME variant ${variantId} (${outputsDir}/${variantFile}): "${instruction}". ` +
+  `You have the full prior conversation above — use it to reason about earlier changes (e.g. to undo or refine one) instead of re-deriving. ` +
+  `Same rules: apply surgically through impeccable, keep the brand palette, type, and one canonical CTA intact, change nothing else; ` +
+  `inspect in the browser, write the updated ${variantFile} back to ${outputsDir} + upload_artifact each changed path, then call emit_milestone(phase="iterate", event="done", data={"variant":"${variantId}","file":"${variantFile}"}) as the LAST step.`;
+let initialMessages;
+
 // The design context an iteration needs (impeccable reads these). Snapshotted to
 // R2 at the end of a run and restored at the start of an iteration — so iterate
 // works even on Cloudflare Containers' ephemeral disk (no bind mount).
@@ -78,6 +90,9 @@ if (iterate) {
   // Restore the target variant + design context from R2 (best-effort).
   await ingest.download(variantFile, `${outputsDir}/${variantFile}`).catch(() => {});
   for (const f of CTX_FILES) await ingest.download(`_ctx/${f}`, `${ctxDir}/${f}`).catch(() => {});
+  // Restore the per-variant conversation → continue it with this instruction.
+  const prior = await ingest.downloadJSON(SESSION_KEY).catch(() => null);
+  if (Array.isArray(prior) && prior.length) initialMessages = [...prior, { role: "user", content: iterateFollowup }];
 }
 
 // On iteration, point impeccable's context loader at the persisted design context
@@ -93,16 +108,19 @@ try {
   await ingest.event({ type: "narration", text: iterate
     ? `${provider.name} ${provider.model} — re-rendering variant ${variantId}: ${instruction}`
     : `${provider.name} ${provider.model} — starting${url ? ` uplift of ${url}` : ""}.` });
-  const { usage, done } = await runLoop({
+  const { usage, done, steps } = await runLoop({
     provider,
     tools,
     toolSpecs: TOOL_SPECS,
     system,
     task,
     ...(iterate ? { doneHint: iterateHint } : {}),
+    ...(initialMessages ? { initialMessages } : {}),
     onNarration: (t) => ingest.event({ type: "narration", text: t }).catch(() => {}),
     onTool: (name) => ingest.event({ type: "tool", name }).catch(() => {}),
   });
+  // Persist the updated per-variant conversation so the next prompt has memory.
+  if (iterate) await ingest.uploadJSON(SESSION_KEY, steps).catch(() => {});
   // Always emit the terminal milestone at clean exit — unconditional + idempotent
   // (the DO dedupes: done→`if(finished)return`, iterate→`if(!iterating)return`).
   // Guards the case where the in-loop emit_milestone was made (done=true) but its

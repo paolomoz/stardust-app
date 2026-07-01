@@ -48,5 +48,19 @@ export function makeIngest({ base, runId, token, outputsDir }) {
       await mkdir(dirname(destPath), { recursive: true });
       await writeFile(destPath, Buffer.from(await r.arrayBuffer()));
     },
+    /** Read a JSON blob from R2 (returns null if absent). Used for the persisted
+     *  per-variant conversation so iterations have memory across prompts. */
+    async downloadJSON(key) {
+      const clean = String(key).replace(/^\/+/, "");
+      const r = await fetch(`${root}/artifact/${clean}`, { headers: { ...auth } });
+      if (!r.ok) return null;
+      try { return await r.json(); } catch { return null; }
+    },
+    /** Write a JSON blob to R2. */
+    async uploadJSON(key, obj) {
+      const clean = String(key).replace(/^\/+/, "");
+      const r = await fetch(`${root}/artifact/${clean}`, { method: "PUT", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(obj) });
+      if (!r.ok) throw new Error(`ingest uploadJSON ${r.status}`);
+    },
   };
 }
