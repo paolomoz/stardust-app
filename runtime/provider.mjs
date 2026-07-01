@@ -4,6 +4,8 @@
    Cloudflare AI Gateway later by overriding CEREBRAS_BASE_URL — the agent loop
    doesn't change. This is the seam that makes the model swappable.
    =========================================================================== */
+import { fetchRetry } from "./fetch-retry.mjs";
+
 const DEFAULT_BASE = process.env.CEREBRAS_BASE_URL || "https://api.cerebras.ai/v1";
 const DEFAULT_MODEL = process.env.CEREBRAS_MODEL || "gemma-4-31b";
 
@@ -14,7 +16,7 @@ export function makeProvider({ base = DEFAULT_BASE, model = DEFAULT_MODEL, key =
     model,
     /** One turn: messages + tool schemas -> assistant message (+ tool_calls) + usage. */
     async step(messages, tools) {
-      const res = await fetch(`${base}/chat/completions`, {
+      const res = await fetchRetry(`${base}/chat/completions`, {
         method: "POST",
         headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
         body: JSON.stringify({
@@ -26,7 +28,7 @@ export function makeProvider({ base = DEFAULT_BASE, model = DEFAULT_MODEL, key =
           max_tokens: 16384,
           temperature: 0.4,
         }),
-      });
+      }, { label: "cerebras" });
       if (!res.ok) throw new Error(`cerebras ${res.status}: ${(await res.text()).slice(0, 500)}`);
       const d = await res.json();
       const choice = d.choices?.[0] ?? {};

@@ -48,9 +48,23 @@ function cols(s: RunState): Col[] {
   const upliftRows: Row[] = s.tasks.map((t) => ({ cat: t.cat, kind: t.kind, title: t.title, detail: t.detail, status: t.status }));
   const upliftDone = s.tasks.length > 0 && s.tasks.every((t) => t.status === "done");
   const host = s.url ? s.url.replace(/^https?:\/\//, "").replace(/\/$/, "") : "the homepage";
+  // Prototype column reflects real page prototypes once the phase is entered.
+  const protoRows: Row[] = s.templates.length
+    ? s.templates.map((t) => ({
+        cat: t.status === "done" ? "DONE" : t.status === "failed" ? "FAILED" : "BUILD",
+        kind: "generate",
+        title: t.title,
+        detail: `variant ${t.variant}`,
+        status: t.status === "done" ? "done" : t.status === "failed" ? "wait" : "run",
+      }))
+    : FUTURE.prototype;
+  const protoActive = s.templates.length > 0 || !!s.protoVariant;
+  const protoDone = s.templates.length > 0 && s.templates.every((t) => t.status === "done");
+  const protoStatus: Col["status"] = protoDone ? "done" : protoActive ? "active" : "future";
+  const protoSub = s.protoVariant ? `in variant ${s.protoVariant}` : "other pages";
   return [
     { id: "uplift", label: "Uplift", sub: host, status: upliftDone ? "done" : "active", rows: upliftRows },
-    { id: "prototype", label: "Prototype", sub: "other templates", status: "future", rows: FUTURE.prototype },
+    { id: "prototype", label: "Prototype", sub: protoSub, status: protoStatus, rows: protoRows },
     { id: "deploy", label: "Deploy", sub: "to AEM", status: "future", rows: FUTURE.deploy },
     { id: "rollout", label: "Rollout", sub: "the whole site", status: "future", rows: FUTURE.rollout },
     { id: "audit", label: "Audit", sub: "score the result", status: "future", rows: FUTURE.audit },

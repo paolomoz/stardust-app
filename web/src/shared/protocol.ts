@@ -7,10 +7,12 @@
    =========================================================================== */
 import type {
   Message,
+  PageCandidate,
   Phase,
   RailState,
   ScreenId,
   TaskItem,
+  TemplatePage,
   VariantCard,
   VariantId,
 } from "../state";
@@ -30,6 +32,8 @@ export type ServerEvent =
   | { t: "panel.brand"; brandReviewUrl: string; tensions: { n: string; text: string }[] }
   | { t: "panel.variants"; sharedFixes: string[]; variants: VariantCard[] }
   | { t: "panel.workspace"; activeVariant: VariantId; variants: VariantCard[] }
+  | { t: "panel.pages"; pages: PageCandidate[] }                               // prototype phase: discovered pages
+  | { t: "panel.templates"; protoVariant: string; templates: TemplatePage[] }  // prototype phase: page prototypes
   | { t: "rail"; rail: RailState }
   | { t: "busy"; value: boolean }       // agent working ↔ idle (drives the chat thinking dots)
   | { t: "eta"; seconds: number; startedAt?: number } // ETA bar: total estimate (s) + run-start epoch anchor; re-emitted (re-anchored) at each milestone
@@ -42,7 +46,10 @@ export type ClientCommand =
   | { t: "open"; variant: VariantId }   // open a variant into the workspace
   | { t: "select"; variant: VariantId } // toolbar A/B/C switch — keep the server's active target in sync (no UI re-emit)
   | { t: "cancel" }                      // stop an in-flight run (Stop button)
-  | { t: "send"; screen: ScreenId; text: string }; // composer
+  | { t: "send"; screen: ScreenId; text: string }  // composer
+  | { t: "addVariant"; instruction: string }       // generate an extra direction (variant D, E, …)
+  | { t: "prototype"; slugs: string[] }            // render selected pages in the chosen direction
+  | { t: "setProtoVariant"; variant: VariantId }; // pin which variant direction the prototype phase uses
 
 export const isServerEvent = (v: unknown): v is ServerEvent =>
   typeof v === "object" && v !== null && typeof (v as { t?: unknown }).t === "string";

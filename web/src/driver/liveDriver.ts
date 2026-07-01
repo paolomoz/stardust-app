@@ -82,6 +82,15 @@ function apply(ev: ServerEvent): void {
         if (ev.variants.length) s.variants = ev.variants;
       });
       break;
+    case "panel.pages":
+      store.set({ pageCandidates: ev.pages });
+      break;
+    case "panel.templates":
+      store.update((s) => {
+        s.templates = ev.templates;
+        if (ev.protoVariant) s.protoVariant = ev.protoVariant;
+      });
+      break;
     case "rail":
       store.set({ rail: ev.rail });
       break;
@@ -197,6 +206,9 @@ export const openVariant = (variant: VariantId) => command({ t: "open", variant 
 export const selectVariant = (variant: VariantId) => command({ t: "select", variant });
 export const cancelRun = () => command({ t: "cancel" });
 export const sendMessage = (screen: ScreenId, text: string) => command({ t: "send", screen, text });
+export const addVariant = (instruction: string) => command({ t: "addVariant", instruction });
+export const prototypePages = (slugs: string[]) => command({ t: "prototype", slugs });
+export const setProtoVariant = (variant: VariantId) => command({ t: "setProtoVariant", variant });
 
 export function resetRun(): void {
   if (ws) {

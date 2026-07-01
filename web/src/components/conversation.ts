@@ -28,6 +28,10 @@ const SUGGESTIONS: Record<ScreenId, Suggestion[]> = {
     { label: "Calmer palette", prompt: "use a calmer, more restrained palette" },
     { label: "More motion", prompt: "add more motion and life to the page" },
   ],
+  prototype: [
+    { label: "Prototype the about page", prompt: "prototype the about page" },
+    { label: "Prototype the pricing page", prompt: "prototype the pricing page" },
+  ],
 };
 
 function suggestionsFor(s: RunState): Suggestion[] {
@@ -310,7 +314,11 @@ export function createConversation(app: App): Conversation {
     // Thinking dots while the agent is working.
     thinkingEl.hidden = !s.agentBusy;
 
-    input.placeholder = s.screen === "workspace" ? "tell me a change…" : "tell stardust…";
+    input.placeholder =
+      s.screen === "workspace" ? "tell me a change…"
+      : s.screen === "variants" ? "describe another direction…"
+      : s.screen === "prototype" ? "prototype a page…"
+      : "tell stardust…";
 
     // On reload the history arrives in bursts and late layout (markdown replies,
     // artifact cards, images) grows the thread after first paint — until the

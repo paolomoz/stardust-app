@@ -4,10 +4,12 @@
    Worker WebSocket. Keep this transport-agnostic.
    =========================================================================== */
 
-export type ScreenId = "landing" | "working" | "brand" | "variants" | "workspace";
+export type ScreenId = "landing" | "working" | "brand" | "variants" | "workspace" | "prototype";
 export type Phase = "prototype" | "deploy";
 export type TaskStatus = "done" | "run" | "wait";
-export type VariantId = "A" | "B" | "C";
+// Variant ids: the first three are A/B/C; extra directions generated from chat
+// continue D, E, … — so this is an open string, not a closed union.
+export type VariantId = string;
 
 export interface TaskItem {
   id: string;
@@ -61,6 +63,27 @@ export interface VariantCard {
   moves?: string[];
 }
 
+/** A candidate page discovered from the home inventory's internal links — the
+ *  pool the prototype phase can render in the chosen direction. */
+export interface PageCandidate {
+  slug: string;
+  title: string;
+  url: string;
+}
+
+/** A page prototyped in the prototype phase (a template rendered in the chosen
+ *  variant's direction). Built up from template.page_* milestones. */
+export interface TemplatePage {
+  slug: string;
+  title: string;
+  url?: string;
+  variant: string;       // the direction (variant id) it was rendered in
+  src?: string;          // proposed html url (iframe) — set on done
+  thumb?: string;
+  status: "queued" | "running" | "done" | "failed";
+  message?: string;      // failure reason
+}
+
 export interface RailState {
   swatches: string[];
   signature?: string;
@@ -96,6 +119,10 @@ export interface RunState {
   lastArtifact?: { ref: ArtifactRef; at: number }; // newest artifact → "ready" toast
   runId?: string;             // the active run's id (for publish/ownership calls)
   published?: { path: string; url: string }[]; // this run's published artifacts
+  pageCandidates: PageCandidate[]; // prototype phase: discovered pages to render
+  templates: TemplatePage[];       // prototype phase: page prototypes (queued/done)
+  protoVariant?: string;           // prototype phase: the pinned direction (variant id)
+  protoActive?: string;            // prototype phase: the page slug shown in the preview
 }
 
 type Listener = (s: RunState) => void;
@@ -126,6 +153,10 @@ function initial(): RunState {
     lastArtifact: undefined,
     runId: undefined,
     published: [],
+    pageCandidates: [],
+    templates: [],
+    protoVariant: undefined,
+    protoActive: undefined,
   };
 }
 

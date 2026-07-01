@@ -7,7 +7,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { getContainer } from "@cloudflare/containers";
 import type { Env } from "./index";
-import type { Message, RailState, ScreenId, TaskItem, VariantCard, VariantId } from "../state";
+import type { Message, PageCandidate, RailState, ScreenId, TaskItem, TemplatePage, VariantCard, VariantId } from "../state";
 import type { ClientCommand, ServerEvent } from "../shared/protocol";
 import { createSession, sendUserMessage, streamEvents, type MaCreds } from "./managedAgents";
 import { callHaiku } from "./haiku";
@@ -69,6 +69,10 @@ const ETA_DEFAULTS: EtaModel = {
 // Iterate ETA: pooled median of past iteration durations (LLM-free, no similarity
 // index — one bucket per backend). Default until history accrues (seconds).
 const ITER_ETA_DEFAULT = { median: 90, p10: 30, p90: 360 };
+// Post-run job priors (seconds): a new direction forks + re-crafts one page; a
+// template renders (extract + prototype) one page. Fixed — not yet learned.
+const VARIANT_ETA = 5 * 60;
+const TEMPLATE_ETA = 6 * 60;
 
 export class RunSession extends DurableObject<Env> {
   private sockets = new Set<WebSocket>();
@@ -100,6 +104,16 @@ export class RunSession extends DurableObject<Env> {
   private iterateVariant?: VariantId;
   private iterateFile?: string;
   private iterateStart = 0; // ms epoch — for the iterate ETA anchor + duration record
+  // Prototype phase state. pageCandidates: pages discovered from the home
+  // inventory; templates: page prototypes (queued→done); protoVariant: the pinned
+  // direction. addingVariant + variantQueue serialize extra-direction jobs;
+  // templateInflight counts in-flight page jobs (busy clears at 0).
+  private realPages: PageCandidate[] = [];
+  private realTemplates: TemplatePage[] = [];
+  private protoVariant?: string;
+  private addingVariant = false;
+  private variantQueue: string[] = [];
+  private templateInflight = 0;
   // Dynamic ETA state (see PIPELINE_VERSION / ETA_DEFAULTS above).
   private etaModel: EtaModel | null = null;
   private startTs = 0;                            // run start (ms epoch) = MIN(run_events.ts)
@@ -151,6 +165,8 @@ export class RunSession extends DurableObject<Env> {
     for (const ev of this.events) server.send(JSON.stringify(ev));
     if (this.realBrand) server.send(JSON.stringify({ t: "panel.brand", brandReviewUrl: this.realBrand.brandReviewUrl, tensions: this.realBrand.tensions }));
     if (this.realVariants?.variants?.length) server.send(JSON.stringify({ t: "panel.variants", sharedFixes: this.realVariants.sharedFixes, variants: this.realVariants.variants }));
+    if (this.realPages.length) server.send(JSON.stringify({ t: "panel.pages", pages: this.realPages }));
+    if (this.realTemplates.length) server.send(JSON.stringify({ t: "panel.templates", protoVariant: this.protoVariant ?? "", templates: this.realTemplates }));
     // Stored rail events bake in run-time swatches; if we know the real palette,
     // resend the last rail corrected (display-only, not persisted).
     if (this.realPalette?.length) {
@@ -691,7 +707,7 @@ export class RunSession extends DurableObject<Env> {
    *  tasks.init so labels/details reflect the real run, not canned demo copy. */
   async ingestEvent(runId: string, ev: unknown): Promise<void> {
     if (!this.runId) this.runId = runId;
-    const e = (ev ?? {}) as { type?: string; text?: string; name?: string; phase?: string; event?: string; seed?: string; items?: { n: string; text: string }[]; brandReview?: string; sharedFixes?: string[]; variants?: unknown[]; variant?: string; file?: string; message?: string; palette?: string[] };
+    const e = (ev ?? {}) as { type?: string; text?: string; name?: string; phase?: string; event?: string; seed?: string; items?: { n: string; text: string }[]; brandReview?: string; sharedFixes?: string[]; variants?: unknown[]; variant?: string; file?: string; message?: string; palette?: string[]; pages?: PageCandidate[]; card?: unknown; slug?: string; title?: string; thumb?: string };
 
     // User-facing message (reply_to_user) → prominent, markdown-rendered.
     if (e.type === "reply" && e.text) {
@@ -738,6 +754,74 @@ export class RunSession extends DurableObject<Env> {
     // The run itself crashed (runtime reported, or the runner backstop did).
     if (e.phase === "failed") {
       await this.fail(e.message || "the run failed");
+      return;
+    }
+
+    // Post-run jobs (extra directions + the prototype phase) arrive after the run
+    // is done; a cold/evicted DO needs its result restored first so the variant
+    // list / pages / templates aren't clobbered.
+    if (e.phase === "variant" || e.phase === "template" || (e.phase === "extract" && e.event === "pages")) {
+      await this.rehydrateResult(runId);
+    }
+
+    // Discovered pages (prototype phase pool) — deterministic, from the runtime.
+    if (e.phase === "extract" && e.event === "pages") {
+      this.realPages = (e.pages ?? []).filter((p) => p && p.slug && p.url);
+      await this.persistResult();
+      await this.emit({ t: "panel.pages", pages: this.realPages });
+      return;
+    }
+
+    // An extra direction (variant D, E, …) — a question, a new card, or a failure.
+    if (e.phase === "variant") {
+      if (e.event === "answer") { await this.finishVariant(); return; }
+      if (e.event === "failed") {
+        await this.emit({ t: "message.append", message: { id: `verr-${this.seq}`, role: "agent", lead: `Couldn't generate that direction${e.message ? ` — ${e.message}` : ""}. Try rephrasing.` } });
+        await this.finishVariant();
+        return;
+      }
+      if (e.event === "added" && e.card) {
+        const card = this.mapVariants([e.card])[0];
+        if (card) {
+          const list = this.realVariants?.variants ?? [];
+          if (!list.some((v) => v.id === card.id)) {
+            this.realVariants = { sharedFixes: this.realVariants?.sharedFixes ?? [], variants: [...list, card] };
+            await this.persistResult();
+            await this.emit({ t: "panel.variants", sharedFixes: this.realVariants.sharedFixes, variants: this.realVariants.variants });
+            await this.emit({ t: "message.append", message: { id: `nv-${card.id}-${this.seq}`, role: "agent", lead: `New direction ready — variant **${card.id}**${card.segWord ? ` · ${card.segWord}` : ""}.` } });
+            await this.emit({ t: "message.append", message: { id: `art-${card.id}-${this.seq}`, role: "agent", artifact: { kind: "variant", variant: card.id, label: `Variant ${card.id}${card.segWord ? ` — ${card.segWord}` : ""}` } } });
+          }
+        }
+        await this.finishVariant();
+        return;
+      }
+      return;
+    }
+
+    // The prototype phase — a page rendered in the chosen direction.
+    if (e.phase === "template") {
+      const slug = (e.slug ?? "").trim();
+      if (e.event === "page_started") {
+        if (slug) { this.upsertTemplate({ slug, title: e.title || slug, variant: this.protoVariant ?? "", status: "running" }); await this.emitTemplates(); }
+        return;
+      }
+      if (e.event === "page_done") {
+        if (slug) {
+          this.upsertTemplate({ slug, title: e.title || slug, variant: this.protoVariant ?? "", status: "done", src: this.art(e.file ?? `${slug}-proposed.html`), thumb: e.thumb ? this.art(e.thumb) : undefined });
+          await this.persistResult();
+          await this.emitTemplates();
+          await this.emit({ t: "message.append", message: { id: `tpl-${slug}-${this.seq}`, role: "agent", lead: `Page **${e.title || slug}** prototyped in variant ${this.protoVariant ?? ""}.` } });
+        }
+        await this.finishTemplate();
+        return;
+      }
+      if (e.event === "page_failed") {
+        if (slug) { this.upsertTemplate({ slug, title: e.title || slug, variant: this.protoVariant ?? "", status: "failed", message: e.message }); await this.persistResult(); await this.emitTemplates(); }
+        await this.emit({ t: "message.append", message: { id: `tperr-${this.seq}`, role: "agent", lead: `Couldn't prototype ${e.title || slug || "that page"}${e.message ? ` — ${e.message}` : ""}.` } });
+        await this.finishTemplate();
+        return;
+      }
+      if (e.event === "answer") { await this.finishTemplate(); return; }
       return;
     }
 
@@ -838,7 +922,7 @@ export class RunSession extends DurableObject<Env> {
     // variants / palette that an earlier handler already saved.
     const row = await this.env.DB.prepare("SELECT result_json, mode FROM runs WHERE id = ?").bind(this.runId).first<{ result_json: string | null; mode: string | null }>();
     if (!this.mode && row?.mode) this.mode = row.mode; // survive eviction (start() may not have run this DO instance)
-    let cur: { brand?: unknown; variants?: unknown; palette?: unknown; startedAt?: number; timings?: unknown; iterMs?: unknown } = {};
+    let cur: { brand?: unknown; variants?: unknown; palette?: unknown; startedAt?: number; timings?: unknown; iterMs?: unknown; pages?: unknown; templates?: unknown; protoVariant?: unknown } = {};
     try { if (row?.result_json) cur = JSON.parse(row.result_json); } catch { /* ignore */ }
     // Fold the ETA timings in on completion (total present) → the learner reads
     // these; keep any prior timings for a mid-run persist.
@@ -853,6 +937,9 @@ export class RunSession extends DurableObject<Env> {
       startedAt: this.startTs || cur.startedAt || null,
       timings,
       iterMs: cur.iterMs ?? undefined, // preserved; appended by persistIterTiming
+      pages: this.realPages.length ? this.realPages : (cur.pages ?? null),
+      templates: this.realTemplates.length ? this.realTemplates : (cur.templates ?? null),
+      protoVariant: this.protoVariant ?? cur.protoVariant ?? null,
     });
     await this.env.DB.prepare("UPDATE runs SET result_json = ? WHERE id = ?").bind(result, this.runId).run();
   }
@@ -868,6 +955,9 @@ export class RunSession extends DurableObject<Env> {
         palette?: string[] | null;
         startedAt?: number | null;
         timings?: { byLabel?: Record<string, number>; mode?: string } | null;
+        pages?: PageCandidate[] | null;
+        templates?: TemplatePage[] | null;
+        protoVariant?: string | null;
       };
       this.uplift = !!r.uplift;
       if (r.brand) this.realBrand = r.brand;
@@ -876,6 +966,9 @@ export class RunSession extends DurableObject<Env> {
       if (typeof r.startedAt === "number") this.startTs = r.startedAt;
       if (r.timings?.byLabel && !Object.keys(this.timings).length) this.timings = r.timings.byLabel;
       if (r.timings?.mode && !this.mode) this.mode = r.timings.mode;
+      if (r.pages?.length && !this.realPages.length) this.realPages = r.pages;
+      if (r.templates?.length && !this.realTemplates.length) this.realTemplates = r.templates;
+      if (r.protoVariant && !this.protoVariant) this.protoVariant = r.protoVariant;
     } catch {
       /* ignore malformed */
     }
@@ -1008,11 +1101,20 @@ export class RunSession extends DurableObject<Env> {
     if (cmd.t === "select") { this.activeVariant = cmd.variant; return; }
     if (cmd.t === "cancel") return this.cancel();
     if (cmd.t === "send") return this.onSend(cmd.screen, cmd.text);
+    if (cmd.t === "addVariant") {
+      await this.emit({ t: "message.append", message: { id: `u-${this.seq}`, role: "user", text: cmd.instruction } });
+      return this.runAddVariant(cmd.instruction);
+    }
+    if (cmd.t === "prototype") return this.runTemplates(cmd.slugs);
+    if (cmd.t === "setProtoVariant") { this.protoVariant = cmd.variant; await this.emitTemplates(); return; }
   }
 
   private async onSend(screen: ScreenId, text: string): Promise<void> {
     await this.emit({ t: "message.append", message: { id: `u-${this.seq}`, role: "user", text } });
     if (screen === "workspace") return this.iterate(text);
+    // Directions chat → explore a new direction; Prototype chat → render/ask about a page.
+    if (screen === "variants") return this.runAddVariant(text);
+    if (screen === "prototype") return this.runTemplateChat(text);
     this.schedule(550, () =>
       this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "On it — folding that into the work." } }),
     );
@@ -1082,6 +1184,146 @@ export class RunSession extends DurableObject<Env> {
     if (this.iterateStart) { await this.persistIterTiming(Date.now() - this.iterateStart); this.iterateStart = 0; }
     await this.emit({ t: "message.append", message: { id: `it-${this.seq}`, role: "agent", lead: `Done — re-rendered variant **${active}**. Switch variants or ask for another change.` } });
     await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", variant: card.segLabel, clock: "⏱ re-rendered" }) });
+  }
+
+  /* ---- extra directions (variant D, E, …) + the prototype phase ---- */
+
+  /** Backend + ingest token for a post-run job. Null when the run can't spawn
+   *  one (e.g. a legacy run with no token). */
+  private async jobCreds(): Promise<{ backend: "cerebras" | "bedrock"; token: string } | null> {
+    const row = await this.env.DB.prepare("SELECT mode, ingest_token AS token FROM runs WHERE id = ?").bind(this.runId).first<{ mode: string | null; token: string | null }>();
+    if (!row?.token) return null;
+    return { backend: row.mode === "cerebras" ? "cerebras" : "bedrock", token: row.token };
+  }
+
+  /** The next free variant id (A→Z), skipping ones already in the gallery. */
+  private nextVariantId(): string {
+    const used = new Set((this.realVariants?.variants ?? []).map((v) => v.id.trim().toUpperCase()));
+    for (let c = 65; c <= 90; c++) { const l = String.fromCharCode(c); if (!used.has(l)) return l; }
+    return `V${used.size + 1}`;
+  }
+
+  /** Generate an additional direction by forking a base variant and re-crafting
+   *  it. Sequential (one at a time; extra requests queue). */
+  private async runAddVariant(instruction: string): Promise<void> {
+    const cards = this.realVariants?.variants ?? [];
+    if (!cards.length) {
+      await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Generate the first directions before adding more." } });
+      return;
+    }
+    if (this.addingVariant) {
+      this.variantQueue.push(instruction);
+      await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Queued — I'll explore that direction next." } });
+      return;
+    }
+    const creds = await this.jobCreds();
+    if (!creds) {
+      await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "I can't add a direction to this run — its runtime token is missing. Try a fresh run." } });
+      return;
+    }
+    // Fork the variant the user is looking at (else the recommended, else last).
+    const base = cards.find((v) => v.id === this.activeVariant) ?? cards.find((v) => v.recommended) ?? cards[cards.length - 1];
+    const baseFile = (base.src.split("?")[0].split("/").pop() ?? "").trim();
+    const name = this.nextVariantId();
+    this.addingVariant = true;
+    await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `On it — a new direction (variant **${name}**), forked from ${base.id}: ${instruction}` } });
+    await this.emit({ t: "busy", value: true });
+    await this.emit({ t: "eta", seconds: VARIANT_ETA, startedAt: Date.now() });
+    await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", busy: true, clock: `⏱ crafting variant ${name}` }) });
+    try {
+      await this.triggerRuntime({ runId: this.runId, token: creds.token, backend: creds.backend, mode: "variant", jobId: "var", instruction, variantName: name, variantFile: baseFile });
+    } catch (e) {
+      await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Couldn't start that (${(e as Error).message}).` } });
+      await this.finishVariant();
+    }
+  }
+
+  /** Clear the extra-direction busy state and start the next queued request. */
+  private async finishVariant(): Promise<void> {
+    this.addingVariant = false;
+    await this.emit({ t: "busy", value: false });
+    await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", clock: "⏱ directions ready" }) });
+    const next = this.variantQueue.shift();
+    if (next) return this.runAddVariant(next);
+  }
+
+  private upsertTemplate(t: TemplatePage): void {
+    const i = this.realTemplates.findIndex((x) => x.slug === t.slug);
+    if (i >= 0) this.realTemplates[i] = { ...this.realTemplates[i], ...t };
+    else this.realTemplates = [...this.realTemplates, t];
+  }
+
+  private async emitTemplates(): Promise<void> {
+    await this.emit({ t: "panel.templates", protoVariant: this.protoVariant ?? "", templates: this.realTemplates });
+  }
+
+  /** Decrement the in-flight page count; clear busy when the batch drains. */
+  private async finishTemplate(): Promise<void> {
+    this.templateInflight = Math.max(0, this.templateInflight - 1);
+    if (this.templateInflight === 0) {
+      await this.emit({ t: "busy", value: false });
+      await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", clock: "⏱ pages ready" }) });
+    }
+  }
+
+  /** Resolve the direction (variant) the prototype phase renders in. */
+  private protoVariantFile(): { variant: string; file: string } | null {
+    const cards = this.realVariants?.variants ?? [];
+    if (!cards.length) return null;
+    const variant = this.protoVariant ?? this.activeVariant ?? cards.find((v) => v.recommended)?.id ?? cards[0].id;
+    const card = cards.find((v) => v.id === variant) ?? cards[0];
+    this.protoVariant = card.id;
+    return { variant: card.id, file: (card.src.split("?")[0].split("/").pop() ?? "").trim() };
+  }
+
+  /** Prototype selected pages (from the picker) in the chosen direction — one
+   *  parallel job per page. */
+  private async runTemplates(slugs: string[]): Promise<void> {
+    const pin = this.protoVariantFile();
+    if (!pin) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Pick a variant direction first." } }); return; }
+    const targets = slugs.map((s) => this.realPages.find((p) => p.slug === s)).filter((p): p is PageCandidate => !!p)
+      // skip pages already prototyped or in flight
+      .filter((p) => !this.realTemplates.some((t) => t.slug === p.slug && (t.status === "done" || t.status === "running" || t.status === "queued")));
+    if (!targets.length) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Nothing new to prototype — pick other pages." } }); return; }
+    const creds = await this.jobCreds();
+    if (!creds) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "I can't prototype pages on this run — its runtime token is missing." } }); return; }
+    for (const t of targets) this.upsertTemplate({ slug: t.slug, title: t.title, url: t.url, variant: pin.variant, status: "queued" });
+    await this.persistResult();
+    await this.emitTemplates();
+    await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Prototyping ${targets.length} page${targets.length > 1 ? "s" : ""} in variant **${pin.variant}**…` } });
+    await this.emit({ t: "busy", value: true });
+    await this.emit({ t: "eta", seconds: TEMPLATE_ETA, startedAt: Date.now() });
+    await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", busy: true, clock: `⏱ prototyping ${targets.length} page(s)` }) });
+    for (const t of targets) {
+      this.templateInflight += 1;
+      try {
+        await this.triggerRuntime({ runId: this.runId, token: creds.token, backend: creds.backend, mode: "template", jobId: `tpl-${t.slug}`, variantId: pin.variant, variantFile: pin.file, slug: t.slug, pageUrl: t.url, pageTitle: t.title });
+      } catch (e) {
+        this.upsertTemplate({ slug: t.slug, title: t.title, url: t.url, variant: pin.variant, status: "failed", message: (e as Error).message });
+        await this.emitTemplates();
+        await this.finishTemplate();
+      }
+    }
+  }
+
+  /** Prototype-phase chat: a free-text request the runtime resolves to a page
+   *  (or answers as a question). */
+  private async runTemplateChat(text: string): Promise<void> {
+    const pin = this.protoVariantFile();
+    if (!pin) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Generate the directions first, then pick one to prototype other pages in." } }); return; }
+    const creds = await this.jobCreds();
+    if (!creds) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "I can't prototype pages on this run — its runtime token is missing." } }); return; }
+    await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `On it — in variant **${pin.variant}**: ${text}` } });
+    await this.emit({ t: "busy", value: true });
+    await this.emit({ t: "eta", seconds: TEMPLATE_ETA, startedAt: Date.now() });
+    await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", busy: true, clock: `⏱ prototyping in ${pin.variant}` }) });
+    this.templateInflight += 1;
+    try {
+      await this.triggerRuntime({ runId: this.runId, token: creds.token, backend: creds.backend, mode: "template", jobId: `tpl-chat-${this.seq}`, variantId: pin.variant, variantFile: pin.file, instruction: text });
+    } catch (e) {
+      await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Couldn't start that (${(e as Error).message}).` } });
+      await this.finishTemplate();
+    }
   }
 }
 

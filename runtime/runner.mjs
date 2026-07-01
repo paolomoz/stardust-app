@@ -25,15 +25,27 @@ const SELF_INGEST = process.env.RUNNER_INGEST_BASE || "http://localhost:5173";
 // Runs the operator intentionally stopped — their container exit must not be
 // reported as a failure.
 const canceled = new Set();
+// Live container names per run, so cancel can kill every in-flight job (the run
+// plus any parallel variant/template jobs).
+const running = new Map(); // runId -> Set<containerName>
 
-const containerName = (runId, mode) => `stardust-${runId}${mode === "iterate" ? "-iter" : ""}`;
+const containerName = (runId, mode, jobId) =>
+  jobId ? `stardust-${runId}-${jobId}` : `stardust-${runId}${mode === "iterate" ? "-iter" : ""}`;
 
-async function reportFailure(runId, token, mode, variantId, message) {
+/** The failure event shape for a job that crashed before self-reporting. */
+function failureEvent(mode, variantId, slug, message) {
+  if (mode === "iterate") return { phase: "iterate", event: "failed", variant: variantId, message };
+  if (mode === "variant") return { phase: "variant", event: "failed", message };
+  if (mode === "template") return { phase: "template", event: "page_failed", slug: slug || "", message };
+  return { phase: "failed", message };
+}
+
+async function reportFailure(runId, token, mode, variantId, slug, message) {
   try {
     await fetch(`${SELF_INGEST}/api/ingest/${runId}/event`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify(mode === "iterate" ? { phase: "iterate", event: "failed", variant: variantId, message } : { phase: "failed", message }),
+      body: JSON.stringify(failureEvent(mode, variantId, slug, message)),
     });
   } catch { /* best effort */ }
 }
@@ -69,17 +81,22 @@ function backendEnv(backend) {
   };
 }
 
-function startContainer({ runId, url, token, backend, mode, instruction, variantId, variantFile }) {
+function startContainer({ runId, url, token, backend, mode, jobId, instruction, variantId, variantFile, variantName, slug, pageUrl, pageTitle }) {
   const out = `${OUTPUTS_DIR}/${runId}`;
-  const work = `${OUTPUTS_DIR}/${runId}-workspace`;
+  // Post-run jobs (variant/template) run in their own isolated workspace so
+  // parallel jobs never race on one stardust/ tree; the run + iterate reuse the
+  // run's persisted workspace.
+  const workDirHost = jobId ? `${OUTPUTS_DIR}/${runId}-${jobId}-workspace` : `${OUTPUTS_DIR}/${runId}-workspace`;
   mkdirSync(out, { recursive: true });
-  mkdirSync(work, { recursive: true });
+  mkdirSync(workDirHost, { recursive: true });
 
-  // Iteration reuses the original run's persisted workspace + deliverables.
-  const isIterate = mode === "iterate";
-  const iterateEnv = isIterate
-    ? { ITERATE: "1", INSTRUCTION: instruction || "", VARIANT_ID: variantId || "C", VARIANT_FILE: variantFile || "home-C-cinematic.html" }
-    : {};
+  // Per-mode env for agent.mjs. MODE selects the branch; ITERATE stays set for
+  // iterate (back-compat with the in-container server.mjs path).
+  const modeEnv = {};
+  if (mode) modeEnv.MODE = mode;
+  if (mode === "iterate") { modeEnv.ITERATE = "1"; modeEnv.INSTRUCTION = instruction || ""; modeEnv.VARIANT_ID = variantId || "C"; modeEnv.VARIANT_FILE = variantFile || "home-C-cinematic.html"; }
+  if (mode === "variant") { modeEnv.INSTRUCTION = instruction || ""; modeEnv.VARIANT_NAME = variantName || "D"; modeEnv.VARIANT_FILE = variantFile || "home-C-cinematic.html"; }
+  if (mode === "template") { modeEnv.VARIANT_ID = variantId || "C"; modeEnv.VARIANT_FILE = variantFile || ""; modeEnv.INSTRUCTION = instruction || ""; modeEnv.SLUG = slug || ""; modeEnv.PAGE_URL = pageUrl || ""; modeEnv.PAGE_TITLE = pageTitle || ""; }
 
   const be = backendEnv(backend);
   const { _label, ...envVars } = be;
@@ -90,40 +107,52 @@ function startContainer({ runId, url, token, backend, mode, instruction, variant
     INGEST_BASE,
     OUTPUTS_DIR: "/mnt/session/outputs",
     WORKDIR: "/workspace",
-    ...iterateEnv,
+    ...modeEnv,
     ...envVars,
   }).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
 
-  const name = containerName(runId, mode);
+  const name = containerName(runId, mode, jobId);
   const args = [
     "run", "--rm", "--name", name,
     ...envArgs,
     "-v", `${out}:/mnt/session/outputs`,
-    "-v", `${work}:/workspace/stardust`,
+    "-v", `${workDirHost}:/workspace/stardust`,
     "--entrypoint", "node",
     IMAGE, "/workspace/runtime/agent.mjs",
   ];
   canceled.delete(runId);
+  if (!running.has(runId)) running.set(runId, new Set());
+  running.get(runId).add(name);
   const child = spawn("docker", args, { stdio: "inherit" });
   child.on("exit", (code) => {
+    running.get(runId)?.delete(name);
     // Backstop: report a crash the runtime couldn't (OOM / hard kill). Skip
     // intentional cancels and clean exits.
-    if (canceled.has(runId)) { canceled.delete(runId); return; }
+    if (canceled.has(runId)) return;
     if (code && code !== 0) {
-      console.log(`[runner] run ${runId} exited ${code} — reporting failure`);
-      void reportFailure(runId, token, mode, variantId, `the runtime exited with code ${code}`);
+      console.log(`[runner] job ${name} exited ${code} — reporting failure`);
+      void reportFailure(runId, token, mode, variantId, slug, `the runtime exited with code ${code}`);
     }
   });
   child.unref();
-  console.log(`[runner] spawned [${_label}] ${isIterate ? `iterate(${variantId}: ${instruction})` : "container"} for run ${runId} (${url})`);
+  const label = mode === "iterate" ? `iterate(${variantId}: ${instruction})`
+    : mode === "variant" ? `variant ${variantName}: ${instruction}`
+    : mode === "template" ? `template ${slug || instruction} (variant ${variantId})`
+    : "container";
+  console.log(`[runner] spawned [${_label}] ${label} for run ${runId} (${url || ""})`);
 }
 
 function cancelRun(runId) {
   canceled.add(runId);
-  for (const m of ["uplift", "iterate"]) {
-    const child = spawn("docker", ["kill", containerName(runId, m)], { stdio: "ignore" });
+  const names = new Set(running.get(runId) ?? []);
+  // Also cover the legacy names in case tracking missed one.
+  names.add(containerName(runId));
+  names.add(containerName(runId, "iterate"));
+  for (const name of names) {
+    const child = spawn("docker", ["kill", name], { stdio: "ignore" });
     child.on("error", () => {});
   }
+  running.delete(runId);
   console.log(`[runner] cancel requested for run ${runId}`);
 }
 
@@ -138,13 +167,14 @@ createServer((req, res) => {
   req.on("data", (c) => (body += c));
   req.on("end", () => {
     try {
-      const { runId, url, token, backend, mode, instruction, variantId, variantFile } = JSON.parse(body || "{}");
+      const job = JSON.parse(body || "{}");
+      const { runId, token } = job;
       if (!runId) throw new Error("runId required");
       if (isCancel) {
         cancelRun(runId);
       } else {
         if (!token) throw new Error("token required");
-        startContainer({ runId, url: url || "", token, backend: backend || "bedrock", mode, instruction, variantId, variantFile });
+        startContainer({ ...job, url: job.url || "", backend: job.backend || "bedrock" });
       }
       res.writeHead(202, { "content-type": "application/json" }).end(JSON.stringify({ ok: true }));
     } catch (e) {

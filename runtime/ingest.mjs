@@ -5,6 +5,7 @@
    =========================================================================== */
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
+import { fetchRetry } from "./fetch-retry.mjs";
 
 const MIME = {
   ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".mjs": "text/javascript",
@@ -19,7 +20,7 @@ export function makeIngest({ base, runId, token, outputsDir }) {
   return {
     /** Push a milestone / narration / tool event (the DO maps these to UI events). */
     async event(obj) {
-      const r = await fetch(`${root}/event`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(obj) });
+      const r = await fetchRetry(`${root}/event`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(obj) }, { label: "ingest.event" });
       if (!r.ok) throw new Error(`ingest event ${r.status}: ${(await r.text()).slice(0, 200)}`);
     },
     /** Upload a deliverable by its path relative to the outputs dir -> R2. */
@@ -27,7 +28,7 @@ export function makeIngest({ base, runId, token, outputsDir }) {
       const clean = String(rel).replace(/^\/+/, "");
       const body = await readFile(join(outputsDir, clean));
       const ct = MIME[extname(clean).toLowerCase()] || "application/octet-stream";
-      const r = await fetch(`${root}/artifact/${clean}`, { method: "PUT", headers: { ...auth, "content-type": ct }, body });
+      const r = await fetchRetry(`${root}/artifact/${clean}`, { method: "PUT", headers: { ...auth, "content-type": ct }, body }, { label: `ingest.artifact ${clean}` });
       if (!r.ok) throw new Error(`ingest artifact ${r.status}: ${(await r.text()).slice(0, 200)}`);
       return `uploaded ${clean} (${body.length}B)`;
     },
@@ -36,14 +37,14 @@ export function makeIngest({ base, runId, token, outputsDir }) {
       const clean = String(key).replace(/^\/+/, "");
       const body = await readFile(absPath);
       const ct = MIME[extname(clean).toLowerCase()] || "application/octet-stream";
-      const r = await fetch(`${root}/artifact/${clean}`, { method: "PUT", headers: { ...auth, "content-type": ct }, body });
+      const r = await fetchRetry(`${root}/artifact/${clean}`, { method: "PUT", headers: { ...auth, "content-type": ct }, body }, { label: `ingest.uploadFrom ${clean}` });
       if (!r.ok) throw new Error(`ingest uploadFrom ${r.status}`);
     },
     /** Download an R2 key (this run's artifact) to a local path. Used to restore
      *  iteration inputs on Containers' ephemeral disk. */
     async download(key, destPath) {
       const clean = String(key).replace(/^\/+/, "");
-      const r = await fetch(`${root}/artifact/${clean}`, { headers: { ...auth } });
+      const r = await fetchRetry(`${root}/artifact/${clean}`, { headers: { ...auth } }, { label: `ingest.download ${clean}` });
       if (!r.ok) throw new Error(`ingest download ${r.status}`);
       await mkdir(dirname(destPath), { recursive: true });
       await writeFile(destPath, Buffer.from(await r.arrayBuffer()));
@@ -52,14 +53,14 @@ export function makeIngest({ base, runId, token, outputsDir }) {
      *  per-variant conversation so iterations have memory across prompts. */
     async downloadJSON(key) {
       const clean = String(key).replace(/^\/+/, "");
-      const r = await fetch(`${root}/artifact/${clean}`, { headers: { ...auth } });
+      const r = await fetchRetry(`${root}/artifact/${clean}`, { headers: { ...auth } }, { label: `ingest.downloadJSON ${clean}` });
       if (!r.ok) return null;
       try { return await r.json(); } catch { return null; }
     },
     /** Write a JSON blob to R2. */
     async uploadJSON(key, obj) {
       const clean = String(key).replace(/^\/+/, "");
-      const r = await fetch(`${root}/artifact/${clean}`, { method: "PUT", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(obj) });
+      const r = await fetchRetry(`${root}/artifact/${clean}`, { method: "PUT", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(obj) }, { label: `ingest.uploadJSON ${clean}` });
       if (!r.ok) throw new Error(`ingest uploadJSON ${r.status}`);
     },
   };

@@ -41,4 +41,14 @@ export interface App {
   /** Open an artifact card from the chat on the right (brand → brand screen,
    *  variant → workspace with that variant). */
   openArtifact(a: ArtifactRef): void;
+  /** Enter the prototype phase (render other pages in the chosen direction). */
+  goPrototype(): void;
+  /** Directions: generate an additional variant from a free-text direction. */
+  addVariant(instruction: string): void;
+  /** Prototype phase: render the selected pages in the chosen direction. */
+  prototypePages(slugs: string[]): void;
+  /** Prototype phase: pin which variant's direction pages render in. */
+  setProtoVariant(variant: VariantId): void;
+  /** Prototype phase: show a prototyped page in the preview (client-only). */
+  setProtoActive(slug: string): void;
 }

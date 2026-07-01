@@ -21,10 +21,55 @@ real slowdowns + a perception gap.
   the bar sits at "58% / brand captured" while the agent is actually building
   variant C. Run *looks* stuck. Fix: drive the bar off narration cadence and/or
   emit finer milestones; smoother ETA decay.
+  - **Observed again (3m.com, 2026-07-01).** At 8 min in, only `extract.started`
+    + `extract.seed` had fired (board: "reading the brand", 22%) while the chat
+    showed the agent already at **Phase 4 (composing directions)** — it had run
+    the tension detectors, written `_brand-extraction.json`, and was writing
+    PRODUCT/DESIGN. So the board understated real progress by ~2 phases; it only
+    catches up when the agent finally emits `brand_ready`/`variants_ready` (often
+    in a burst). The board machinery is correct — the agent just emits late.
+  - **Fix (deterministic milestone backstop).** Don't rely on the model to
+    `emit_milestone` on time. Have the runtime watch the workspace and emit the
+    phase milestone when its artifact/state lands — mirrors the iterate
+    force-emit + DO artifact-arrival completion (`ingestArtifact`): e.g. emit
+    `extract.brand_ready` when `stardust/current/brand-review.html` +
+    `_brand-extraction.json` exist; `direct.variants_ready` when the
+    `DESIGN-*.json` set + `direction.md` variant sections exist;
+    `prototype.variant_done` when each `home-*-proposed.html` lands. Poll in
+    `agent.mjs` (a lightweight fs-watch beside the loop) OR infer in the DO from
+    `upload_artifact` paths (brand-review → brand_ready; each proposed.html →
+    variant_done). Turns board progress from model-timed into event-timed.
 - **Prompt caching.** Runs re-read ~15-18M cached-context tokens. Anthropic
   prompt caching on the system prompt + baked skill files would cut per-call
   latency (and cost) materially.
 - **(see Parallelization)** — parallel variant builds is the largest wall-clock win.
+
+## Resilience / scalability (measured — 8 concurrent local runs, 2026-07-01)
+
+Ran 8 Opus runs concurrently (local, 12-CPU / 8.2 GB Docker VM). Result: **7/8
+completed**, 24–38 min each (median ~27m) — concurrency did **not** slow them vs
+a solo ~27m run, load peaked ~8–9/12 CPU, and **no OOM** (8 concurrent Chromium
+stayed within 8.2 GB; renders are brief/staggered). Compute + memory scale fine
+at this fan-out. The new runtime held up: all 7 completions emitted page
+discovery + the workspace bundle under load. Two real gaps surfaced:
+
+- **No retry on transient provider/network failures (biggest).** ✅ **DONE
+  (2026-07-01).** One run died at 23 min to `bedrock 500: "…unexpected error…
+  Try your request again."` — an explicitly retryable transient, ~23-min run
+  thrown away. Separately, a brief operator network blip killed 3 runs at t=0
+  with bare `fetch failed`. Root: `provider.step` + the ingest client did a
+  single `fetch` with no retry. Fixed via `runtime/fetch-retry.mjs` —
+  retry-with-jittered-backoff on network errors + 408/425/429/5xx, honoring
+  `Retry-After`, passing 4xx straight through. Wired into both providers
+  (bedrock/cerebras) and all ingest calls (event/artifact/uploadFrom/download/
+  JSON). Would have saved all 4 lost runs. (Not yet applied to the Worker's
+  haiku.ts suggest/ETA path — lower priority, already falls back gracefully.)
+- **No concurrency control anywhere.** The runner/`server.mjs` spawn a container
+  per request with no cap or stagger; the DO has no per-user run limit. Didn't
+  bite at 8 (compute was fine), but it's the latent ceiling — a large burst would
+  eventually exhaust the Docker VM memory or Bedrock quota. Fix: a small
+  max-concurrency queue in the runner + a per-user in-flight cap in the Worker
+  (pairs with the per-user run-cap guardrail already noted).
 
 ## Live timing (measured — prod run, hirslanden.ch, 2026-07-01)
 

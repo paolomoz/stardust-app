@@ -7,6 +7,8 @@
    Lets us run the SAME open-loop runtime with a frontier model — isolating model
    capability from the harness when judging output quality.
    =========================================================================== */
+import { fetchRetry } from "./fetch-retry.mjs";
+
 const DEFAULT_REGION = process.env.BEDROCK_REGION || "us-east-1";
 const DEFAULT_MODEL = process.env.BEDROCK_MODEL || "us.anthropic.claude-opus-4-8";
 
@@ -30,11 +32,11 @@ export function makeBedrockProvider({ region = DEFAULT_REGION, model = DEFAULT_M
         messages: msgs,
         ...(tools?.length ? { tools: tools.map(toAnthropicTool) } : {}),
       };
-      const res = await fetch(url, {
+      const res = await fetchRetry(url, {
         method: "POST",
         headers: { authorization: `Bearer ${key}`, "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify(body),
-      });
+      }, { label: "bedrock" });
       if (!res.ok) throw new Error(`bedrock ${res.status}: ${(await res.text()).slice(0, 500)}`);
       return fromAnthropic(await res.json());
     },
