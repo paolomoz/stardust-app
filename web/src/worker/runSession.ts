@@ -10,6 +10,7 @@ import type { Env } from "./index";
 import type { Message, RailState, ScreenId, TaskItem, VariantCard, VariantId } from "../state";
 import type { ClientCommand, ServerEvent } from "../shared/protocol";
 import { createSession, sendUserMessage, streamEvents, type MaCreds } from "./managedAgents";
+import { callHaiku } from "./haiku";
 import {
   KNACK_PALETTE,
   KNACK_PROJECT,
@@ -192,26 +193,14 @@ export class RunSession extends DurableObject<Env> {
    *  fallback when the model/key is unavailable. */
   private async estimateEta(kind: "run" | "iterate", detail: string): Promise<number> {
     const fallback = kind === "run" ? 22 * 60 : 3 * 60;
-    const key = this.env.ANTHROPIC_API_KEY;
-    if (!key) return fallback;
     const prompt = kind === "run"
       ? `A design studio will fully redesign the homepage at ${detail} into three polished, brand-faithful variants: read the live brand, identify tensions, then build three production-quality HTML pages with in-browser visual QA. Estimate the wall-clock time in MINUTES for a thorough job. Reply with ONLY an integer.`
       : `A designer will apply this single change to an existing prototype web page, including in-browser QA: "${detail}". Estimate the wall-clock time in MINUTES. Reply with ONLY an integer.`;
-    try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 8, messages: [{ role: "user", content: prompt }] }),
-      });
-      if (!r.ok) return fallback;
-      const j = (await r.json()) as { content?: { text?: string }[] };
-      const mins = parseInt(j.content?.[0]?.text?.match(/\d+/)?.[0] ?? "", 10);
-      if (!Number.isFinite(mins)) return fallback;
-      const clamped = kind === "run" ? Math.min(45, Math.max(8, mins)) : Math.min(12, Math.max(1, mins));
-      return clamped * 60;
-    } catch {
-      return fallback;
-    }
+    const text = await callHaiku(this.env, prompt, 8);
+    const mins = parseInt(text.match(/\d+/)?.[0] ?? "", 10);
+    if (!Number.isFinite(mins)) return fallback;
+    const clamped = kind === "run" ? Math.min(45, Math.max(8, mins)) : Math.min(12, Math.max(1, mins));
+    return clamped * 60;
   }
 
   /* ---- the scripted run ---- */
