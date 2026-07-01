@@ -179,6 +179,7 @@ export function createConversation(app: App): Conversation {
 
   // Stick-to-bottom: auto-scroll only while the user is at (near) the bottom.
   let stuck = true;
+  let booted = false; // until the first content load settles, force bottom
   scroller.addEventListener("scroll", () => {
     stuck = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 60;
   });
@@ -311,7 +312,16 @@ export function createConversation(app: App): Conversation {
 
     input.placeholder = s.screen === "workspace" ? "tell me a change…" : "tell stardust…";
 
-    if (stuck) requestAnimationFrame(toBottom);
+    // On reload the history arrives in bursts and late layout (markdown replies,
+    // artifact cards, images) grows the thread after first paint — until the
+    // first load settles, force bottom (ignoring `stuck`) and reassert a couple
+    // of times so the user lands at the latest message, not mid-thread.
+    if (stuck || !booted) requestAnimationFrame(toBottom);
+    if (!booted && s.messages.length) {
+      booted = true;
+      setTimeout(toBottom, 80);
+      setTimeout(toBottom, 300);
+    }
   };
 
   return { el, update, scroller };
