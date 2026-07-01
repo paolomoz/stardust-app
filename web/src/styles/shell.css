@@ -106,6 +106,12 @@ body.ready .stagger > * { animation-play-state: running; }
 
 /* conversation */
 .conv { display: flex; flex-direction: column; min-height: 0; background: var(--bg); border-right: 1px solid var(--hairline-soft); }
+/* Draggable chat-column width: handle sits on the conv/preview boundary. */
+.conv-resize { position: fixed; top: var(--topbar-h); bottom: 0; left: var(--conv-w); width: 10px; transform: translateX(-5px); cursor: col-resize; z-index: 40; }
+.conv-resize::after { content: ""; position: absolute; inset: 0 4px; background: transparent; transition: background .15s var(--ease); }
+.conv-resize:hover::after { background: rgba(201,130,45,0.4); }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing iframe { pointer-events: none; }
 .conv-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 16px 10px; }
 .conv-head .who { display: flex; align-items: center; gap: 8px; }
 .conv-head .who .s { width: 13px; height: 13px; }

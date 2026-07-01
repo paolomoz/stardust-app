@@ -14,6 +14,7 @@ import { workspace } from "./screens/workspace";
 import { createConversation } from "./components/conversation";
 import { mountToasts } from "./components/toasts";
 import { mountSwitcher } from "./components/switcher";
+import { mountResizer } from "./components/resizer";
 import { login } from "./screens/login";
 import { fetchMe } from "./auth";
 import type { ArtifactRef } from "./state";
@@ -116,6 +117,7 @@ let current: Screen | null = null;
 const conversation = createConversation(app);
 mountToasts(app);
 mountSwitcher(app);
+mountResizer();
 
 function asScreen(r: Screen | HTMLElement): Screen {
   return r instanceof HTMLElement ? { el: r } : r;
