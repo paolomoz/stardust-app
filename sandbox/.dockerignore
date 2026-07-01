@@ -1,0 +1,5 @@
+# Build context = sandbox/. Only the Dockerfile + staged skills/ are needed.
+*
+!Dockerfile
+!skills
+!runtime

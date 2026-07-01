@@ -2,3 +2,9 @@
 .impeccable/
 *.log
 node_modules/
+runs/
+.env
+
+# local run artifacts + bundled prototype archive
+web/artifacts/
+prototypes.zip

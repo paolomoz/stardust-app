@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Knack — Uplift Redesign Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#fff;--surface:#fafafa;--surface2:#f5f3f5;--ink:#1a181d;--muted:#75787b;
+    --primary:#982a86;--primary-dark:#821570;--accent:#ff349a;--coral:#fa816e;--border:#e9e5e9;
+    --grad:linear-gradient(120deg,#982a86 0%,#e61875 55%,#fa816e 100%);
+    --grad-coral:linear-gradient(90deg,#982a86,#fa816e);
+    --sm:0 1px 2px rgba(26,24,29,.06);--md:0 8px 24px rgba(26,24,29,.10);--lg:0 24px 60px rgba(130,21,112,.18);
+  }
+  *{box-sizing:border-box;margin:0}
+  html{scroll-behavior:smooth}
+  body{font-family:Inter,system-ui,sans-serif;color:var(--ink);background:var(--bg);line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+  .narrow{max-width:820px}
+  h1,h2,h3,h4{letter-spacing:-.02em;line-height:1.12;font-weight:800}
+  h2{font-size:clamp(1.7rem,3vw,2.3rem);margin-bottom:6px}
+  h3{font-size:1.3rem;font-weight:700;letter-spacing:-.01em}
+  p{color:#3a3640}
+  a{color:var(--primary);text-decoration:none}
+  .eyebrow{font-size:.78rem;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+  .muted{color:var(--muted)}
+  section{padding:64px 0;border-bottom:1px solid var(--border)}
+  .sec-head{max-width:780px;margin-bottom:36px}
+  .sec-head .eyebrow{color:var(--primary)}
+  .sec-head p{margin-top:10px;font-size:1.08rem;color:#4a454f}
+
+  /* hero */
+  .top{background:var(--grad);color:#fff;padding:0}
+  .top-in{padding:54px 0 60px}
+  .top .bar{display:flex;align-items:center;gap:14px;margin-bottom:42px}
+  .top .bar img{height:30px;filter:brightness(0) invert(1)}
+  .top .bar .tag{margin-left:auto;font-size:.8rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;background:rgba(255,255,255,.18);padding:6px 14px;border-radius:99px;backdrop-filter:blur(4px)}
+  .top h1{font-size:clamp(2.3rem,4.6vw,3.5rem);font-weight:900;max-width:760px}
+  .top .lede{font-size:1.25rem;color:rgba(255,255,255,.92);max-width:680px;margin-top:18px}
+  .top .meta{display:flex;flex-wrap:wrap;gap:10px 28px;margin-top:30px;font-size:.92rem;color:rgba(255,255,255,.9)}
+  .top .meta b{color:#fff}
+
+  /* toc */
+  .toc{background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:40;backdrop-filter:blur(8px)}
+  .toc-in{display:flex;gap:8px;flex-wrap:wrap;padding:12px 0}
+  .toc a{font-size:.88rem;font-weight:600;color:#4a454f;padding:7px 14px;border-radius:99px;border:1px solid transparent}
+  .toc a:hover{background:#fff;border-color:var(--border);color:var(--primary)}
+
+  /* current design / brand surface */
+  .grid2{display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:start}
+  .swatches{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+  .sw{border:1px solid var(--border);border-radius:11px;overflow:hidden;width:96px}
+  .sw .chip{height:52px}.sw .m{padding:6px 8px;font-size:.68rem}
+  .sw .r{font-weight:700;text-transform:capitalize;font-size:.72rem}
+  .sw code{color:var(--muted)}
+  .grads{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+  .gr{height:46px;flex:1;min-width:140px;border-radius:10px;border:1px solid var(--border);display:flex;align-items:flex-end;padding:6px;color:#fff;font-size:.68rem;text-shadow:0 1px 2px rgba(0,0,0,.4)}
+  .factbox{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px}
+  .factbox h4{font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:12px}
+  .factrow{display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px dashed var(--border);font-size:.92rem}
+  .factrow:last-child{border:0}.factrow span:first-child{color:var(--muted)}.factrow b{text-align:right}
+  .ia{counter-reset:s;list-style:none;padding:0;margin-top:18px;columns:2;column-gap:32px}
+  .ia li{padding:6px 0 6px 30px;position:relative;font-size:.92rem;break-inside:avoid}
+  .ia li::before{counter-increment:s;content:counter(s);position:absolute;left:0;top:5px;width:21px;height:21px;border-radius:50%;background:var(--primary);color:#fff;display:grid;place-items:center;font-size:.72rem;font-weight:700}
+
+  /* tensions */
+  .tensions{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .tension{border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:12px;padding:22px;background:var(--surface)}
+  .tension .badge{display:inline-block;font-size:.7rem;font-weight:800;letter-spacing:.05em;color:var(--primary);background:#fae7f6;border-radius:6px;padding:3px 9px;margin-bottom:10px;font-family:ui-monospace,monospace}
+  .tension h4{font-size:1.05rem;margin-bottom:6px}
+  .tension p{font-size:.92rem;color:#4a454f}
+
+  /* variants */
+  .variant{display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:center;margin-bottom:64px}
+  .variant:last-child{margin-bottom:0}
+  .variant.flip .pv{order:2}
+  .vlabel{display:inline-flex;align-items:center;gap:10px;margin-bottom:14px}
+  .vlabel .chip{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;color:#fff;font-weight:900;font-size:1.2rem;background:var(--grad-coral)}
+  .vlabel .role{font-size:.78rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  .variant h3{font-size:1.7rem;margin-bottom:8px}
+  .variant .pitch{font-size:1.05rem;font-weight:600;color:var(--primary);margin:4px 0 14px}
+  .variant ul{list-style:none;padding:0;display:grid;gap:8px;margin:14px 0 20px}
+  .variant li{position:relative;padding-left:24px;font-size:.95rem;color:#3a3640}
+  .variant li::before{content:"";position:absolute;left:0;top:9px;width:9px;height:9px;border-radius:50%;background:var(--accent)}
+  .kv{font-size:.85rem;color:var(--muted);margin-bottom:16px}
+  .kv b{color:var(--ink)}
+  .pv{position:relative}
+  .pv .frame{border:1px solid var(--border);border-radius:16px;overflow:hidden;box-shadow:var(--lg);background:#fff;aspect-ratio:4/3}
+  .pv .frame img{width:100%;display:block;transition:transform 6s linear}
+  .pv:hover .frame img{transform:translateY(calc(-100% + 360px))}
+  .pv .bartop{display:flex;gap:6px;padding:9px 12px;background:#fbf7fb;border-bottom:1px solid var(--border)}
+  .pv .bartop i{width:9px;height:9px;border-radius:50%;background:#e7c9e1;display:block}
+  .pv .scroll-note{position:absolute;bottom:14px;right:14px;background:rgba(26,24,29,.78);color:#fff;font-size:.72rem;padding:5px 11px;border-radius:99px;backdrop-filter:blur(4px);pointer-events:none}
+  .btn{display:inline-flex;align-items:center;gap:.5rem;font-weight:700;border-radius:12px;padding:13px 24px;border:0;cursor:pointer;font-size:.98rem;transition:.18s}
+  .btn-primary{background:var(--accent);color:#fff;box-shadow:0 6px 18px rgba(255,52,154,.3)}
+  .btn-primary:hover{transform:translateY(-2px)}
+  .btn-ghost{background:#fff;color:var(--primary);border:1.5px solid var(--border)}
+  .btn-ghost:hover{border-color:var(--primary)}
+  .vbtns{display:flex;gap:12px;flex-wrap:wrap}
+  .tagm{display:inline-block;font-size:.74rem;font-weight:700;background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:4px 11px;color:#4a454f;margin:0 6px 6px 0}
+
+  /* matrix */
+  table.mx{width:100%;border-collapse:collapse;font-size:.92rem;margin-top:8px}
+  table.mx th,table.mx td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+  table.mx th{font-size:.74rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  table.mx td:first-child{font-weight:700}
+
+  .note{background:#fff8fc;border:1px solid #f3d6ea;border-radius:14px;padding:22px 24px;font-size:.95rem;color:#4a454f}
+  .note b{color:var(--primary)}
+
+  footer{padding:40px 0;text-align:center;color:var(--muted);font-size:.88rem}
+  footer img{height:22px;filter:grayscale(1);opacity:.7;margin-bottom:10px}
+
+  @media(max-width:860px){
+    .grid2,.tensions,.variant,.variant.flip .pv{grid-template-columns:1fr}
+    .variant.flip .pv{order:0}.ia{columns:1}
+  }
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="top">
+  <div class="wrap top-in">
+    <div class="bar">
+      <img src="assets/logo.svg" alt="Knack">
+      <span class="tag">Uplift · Presales Redesign</span>
+    </div>
+    <p class="eyebrow" style="color:rgba(255,255,255,.85)">Redesign report</p>
+    <h1>Three brand-faithful directions for the Knack homepage.</h1>
+    <p class="lede">One URL in. A read of the current design, the tensions worth resolving, and three differentiated redesign variants — each one previewable and openable as a full page.</p>
+    <div class="meta">
+      <span>Source: <b>knack.com</b></span>
+      <span>Date: <b>June 4, 2026</b></span>
+      <span>Mode: <b>Brand-faithful (palette + type pinned)</b></span>
+      <span>Scope: <b>Homepage</b></span>
+    </div>
+  </div>
+</div>
+
+<!-- TOC -->
+<nav class="toc"><div class="wrap toc-in">
+  <a href="#current">Current design</a>
+  <a href="#tensions">Tensions</a>
+  <a href="#variants">The three variants</a>
+  <a href="#compare">How they differ</a>
+  <a href="#notes">Notes</a>
+</div></nav>
+
+<!-- CURRENT DESIGN -->
+<section id="current"><div class="wrap">
+  <div class="sec-head">
+    <p class="eyebrow">01 — What's there today</p>
+    <h2>The current design</h2>
+    <p>Knack sells a no-code app &amp; database builder for businesses, positioned as the secure, enterprise-grade alternative to both AI-coding tools and other no-code platforms. The brand surface is a single saturated magenta, warmed by a pink→coral gradient family, on a WordPress + Bootstrap stack.</p>
+  </div>
+
+  <div class="grid2">
+    <div>
+      <h4 class="muted" style="font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Captured palette</h4>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:#982a86"></div><div class="m"><div class="r">Primary</div><code>#982A86</code></div></div>
+        <div class="sw"><div class="chip" style="background:#821570"></div><div class="m"><div class="r">Primary-dk</div><code>#821570</code></div></div>
+        <div class="sw"><div class="chip" style="background:#ff349a"></div><div class="m"><div class="r">CTA</div><code>#FF349A</code></div></div>
+        <div class="sw"><div class="chip" style="background:#fa816e"></div><div class="m"><div class="r">Coral</div><code>#FA816E</code></div></div>
+        <div class="sw"><div class="chip" style="background:#1a181d"></div><div class="m"><div class="r">Ink</div><code>#1A181D</code></div></div>
+        <div class="sw"><div class="chip" style="background:#fafafa;border-bottom:1px solid var(--border)"></div><div class="m"><div class="r">Surface</div><code>#FAFAFA</code></div></div>
+      </div>
+      <div class="grads">
+        <div class="gr" style="background:linear-gradient(90deg,#982a86,#fa816e)">magenta → coral</div>
+        <div class="gr" style="background:linear-gradient(90deg,#86307b,#e61875)">magenta → pink</div>
+      </div>
+      <h4 class="muted" style="font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;margin:24px 0 6px">Information architecture</h4>
+      <ol class="ia">
+        <li>Promo bar (time-bound)</li>
+        <li>Mega-nav header</li>
+        <li>Hero + dual CTA</li>
+        <li>Social-proof logo wall</li>
+        <li>Value cards + feature tabs</li>
+        <li>"How Knack stands apart"</li>
+        <li>Enterprise components (6-up)</li>
+        <li>Integrations</li>
+        <li>Results / stat row</li>
+        <li>FAQ accordion</li>
+        <li>Final CTA band</li>
+        <li>Footer</li>
+      </ol>
+    </div>
+    <div class="factbox">
+      <h4>Brand surface at a glance</h4>
+      <div class="factrow"><span>Typeface</span><b>Inter (Lato on legacy buttons)</b></div>
+      <div class="factrow"><span>Type scale</span><b>Ad-hoc · 48/44/40/32/22/20</b></div>
+      <div class="factrow"><span>Radius</span><b>11–16px mixed · 9999px pills</b></div>
+      <div class="factrow"><span>Stack</span><b>WordPress + Bootstrap</b></div>
+      <div class="factrow"><span>Register</span><b>Brand / marketing</b></div>
+      <div class="factrow"><span>Tone</span><b>Bold-direct, comparison-led</b></div>
+      <div class="factrow"><span>Distinct CTA labels</span><b>21</b></div>
+      <div class="factrow"><span>Hero</span><b>"The most secure app &amp; database builder…"</b></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- TENSIONS -->
+<section id="tensions"><div class="wrap">
+  <div class="sec-head">
+    <p class="eyebrow">02 — What's worth resolving</p>
+    <h2>Tensions identified</h2>
+    <p>Five specific observations from the captured surface — the load-bearing input for the redesign. Each is a concrete fix, not a vague "make it better."</p>
+  </div>
+  <div class="tensions">
+    <div class="tension"><span class="badge">dated-pattern</span><h4>Generic SaaS-template hero</h4><p>A centered/split hero with a superlative one-liner and two stacked CTAs against a small product visual — it tells rather than shows, when Knack's whole value is building working software.</p></div>
+    <div class="tension"><span class="badge">ia-clutter</span><h4>Competing primary actions</h4><p>A hot-pink "Start Building For Free" and a magenta "Get Started Free" sit side by side, and the page carries 21 distinct CTA labels (incl. a third sign-up phrasing). No single canonical action.</p></div>
+    <div class="tension"><span class="badge">contrast-density</span><h4>Flat hierarchy</h4><p>The type scale is ad-hoc — 48/44/40px headings sit so close that hero, section heads and sub-heads shout at the same volume. Uniformly soft shadows add weak depth. One tonal plane.</p></div>
+    <div class="tension"><span class="badge">cliché</span><h4>By-the-numbers persuasion</h4><p>Logo wall + generic 6-up feature grid + stat row. The genuinely sharp idea — the head-to-head competitor comparison — is rendered in the same flat cards, so the one differentiated argument doesn't look differentiated.</p></div>
+    <div class="tension" style="grid-column:1/-1"><span class="badge">missed-opportunity</span><h4>The best asset is buried — and the brand under-shows itself</h4><p>An interactive feature switcher (Build a Database · Edit with AI · Automate Workflows) lets a visitor flip through the product actually working — but it lives mid-page at small scale. And the distinctive magenta→coral gradient appears only on thin accents while the canvas stays mostly white.</p></div>
+  </div>
+</div></section>
+
+<!-- VARIANTS -->
+<section id="variants"><div class="wrap">
+  <div class="sec-head">
+    <p class="eyebrow">03 — Three directions</p>
+    <h2>The variants</h2>
+    <p>All three are brand-faithful: the captured magenta/coral palette, Inter type, the real Knack logo and the actual product screenshots. They differ by <b>axis</b> — A fixes the current shape, B bets on color, C bets on motion — so no two overlap.</p>
+  </div>
+
+  <!-- A -->
+  <div class="variant">
+    <div>
+      <div class="vlabel"><span class="chip">A</span><span class="role">Risk-averse green-light</span></div>
+      <h3>Tomorrow's version of the site you have today</h3>
+      <p class="pitch">"Yes, that's us — fixed."</p>
+      <p>The captured IA, kept intact, with the five tensions resolved. The safe baseline a conversion-minded buyer signs off on without debate.</p>
+      <ul>
+        <li>One canonical CTA + a quiet "Talk to sales" link</li>
+        <li>A real modular type scale — the hero clearly dominates</li>
+        <li>Feature switcher promoted up the page and enlarged</li>
+        <li>The competitor comparison gets a genuinely distinct surface</li>
+        <li>A two-step depth ladder replaces the flat shadow</li>
+      </ul>
+      <div class="vbtns">
+        <a class="btn btn-primary" href="home-A-proposed.html" target="_blank">Open full prototype ↗</a>
+      </div>
+    </div>
+    <div class="pv">
+      <a href="home-A-proposed.html" target="_blank">
+        <div class="frame"><div class="bartop"><i></i><i></i><i></i></div><img src="assets/thumb-A.png" alt="Variant A full-page preview"></div>
+        <span class="scroll-note">hover to scroll · click to open</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- B -->
+  <div class="variant flip">
+    <div class="pv">
+      <a href="home-B-proposed.html" target="_blank">
+        <div class="frame"><div class="bartop"><i></i><i></i><i></i></div><img src="assets/thumb-B.png" alt="Variant B full-page preview"></div>
+        <span class="scroll-note">hover to scroll · click to open</span>
+      </a>
+    </div>
+    <div>
+      <div class="vlabel"><span class="chip">B</span><span class="role">Design-team motivator</span></div>
+      <h3>What if we amplified Knack's magenta?</h3>
+      <p class="pitch">"The brand's underused capability, foregrounded."</p>
+      <p><b>Captured trait amplified:</b> color-ladder re-weighting. In the captured site, near-black text and white dominate the canvas and magenta is barely on screen. This variant lets the brand's most ownable color own the page.</p>
+      <ul>
+        <li>Full-bleed magenta→coral gradient hero, type reversed in white</li>
+        <li>Dark-magenta alternating bands instead of white-on-white cards</li>
+        <li>The comparison becomes a high-contrast dark panel</li>
+        <li>Same content &amp; order as A — the bet is color + composition, static</li>
+      </ul>
+      <div class="vbtns">
+        <a class="btn btn-primary" href="home-B-proposed.html" target="_blank">Open full prototype ↗</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- C -->
+  <div class="variant">
+    <div>
+      <div class="vlabel"><span class="chip">C</span><span class="role">Visionary pitch</span></div>
+      <h3>What if motion was part of the identity?</h3>
+      <p class="pitch">"The brand's third dimension."</p>
+      <p class="kv">Cinematic register: <b>live-systems</b> · auto-picked because Knack's personality is product/SaaS + data-led — the product literally <i>is</i> live operational software.</p>
+      <p><b>Captured trait amplified:</b> live-data promotion. The hero stops being a screenshot of the product and becomes the product, building itself.</p>
+      <ul>
+        <li>Hero = a Knack app assembling live: KPI tiles + data rows cascade in</li>
+        <li>ROI stats count up 0→target; the SLA bar fills on scroll</li>
+        <li>Live pulse dots on data rows + a periodic refresh-sweep</li>
+        <li>Headings stay still — the data is the choreography</li>
+        <li>Fully neutralized under <code>prefers-reduced-motion</code></li>
+      </ul>
+      <div class="vbtns">
+        <a class="btn btn-primary" href="home-C-cinematic.html" target="_blank">Open cinematic prototype ↗</a>
+        <a class="btn btn-ghost" href="home-C-proposed.html" target="_blank">Static fallback</a>
+      </div>
+    </div>
+    <div class="pv">
+      <a href="home-C-cinematic.html" target="_blank">
+        <div class="frame"><div class="bartop"><i></i><i></i><i></i></div><img src="assets/thumb-C.png" alt="Variant C full-page preview"></div>
+        <span class="scroll-note">hover to scroll · click to open (motion)</span>
+      </a>
+    </div>
+  </div>
+</div></section>
+
+<!-- COMPARE -->
+<section id="compare"><div class="wrap narrow">
+  <div class="sec-head">
+    <p class="eyebrow">04 — Differentiation</p>
+    <h2>How they differ</h2>
+    <p>Each variant differs from the others by at least two structural changes — and, deliberately, on a different axis.</p>
+  </div>
+  <table class="mx">
+    <thead><tr><th>Variant</th><th>Bet</th><th>Hero</th><th>Color weighting</th><th>Motion</th></tr></thead>
+    <tbody>
+      <tr><td>A</td><td>Fix the current shape</td><td>Split, white-ground</td><td>White-ground, magenta accent</td><td>Static</td></tr>
+      <tr><td>B</td><td>Color</td><td>Full-bleed gradient</td><td>Magenta-grounded bands</td><td>Static</td></tr>
+      <tr><td>C</td><td>Motion</td><td>Self-building app</td><td>White-ground (like A)</td><td>live-systems cinematic</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:18px" class="muted">A vs B: hero composition + color weighting. A vs C: motion layer + hero surface. B vs C: color-grounded static vs white-ground motion — different axis.</p>
+</div></section>
+
+<!-- NOTES -->
+<section id="notes" style="border-bottom:0"><div class="wrap narrow">
+  <div class="sec-head">
+    <p class="eyebrow">05 — Notes</p>
+    <h2>What's real vs. placeholder</h2>
+  </div>
+  <div class="note">
+    <p>The hero and feature-tab visuals are the <b>actual product screenshots captured from knack.com</b> (database, AI, automate, pages, users, publish), and the logo is Knack's real SVG wordmark. Customer-logo names, the integration tiles, the ROI figures and the testimonial are rendered as <b>representative placeholders</b> — knack.com presents these via embeds/animation that automated extraction couldn't read cleanly, so they should be swapped for real assets before anything ships.</p>
+    <p style="margin-top:12px">Validation: all three render with zero console errors; Mode A pinned. Variant C additionally passes motion validation — every animation neutralizes to the static reference under reduced-motion, and no headings animate.</p>
+  </div>
+</div></section>
+
+<footer>
+  <img src="assets/logo.svg" alt="Knack">
+  <p>Uplift redesign report · generated from knack.com · brand-faithful presales exploration</p>
+</footer>
+
+</body>
+</html>
