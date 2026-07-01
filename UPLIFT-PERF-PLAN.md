@@ -96,6 +96,21 @@ section headings as the stable anchors).
   most of the above; strongly consider adding.)*
 - **Skip image-view attempts** (~1m) — the harness can't read PNGs; the agent
   retried. **Plugin/system-prompt** note.
+- **Generalized bot-challenge auto-wait in the extract crawler** (~2-3m on
+  challenged sites). **Plugin** (`extract.mjs`). Observed on the prod
+  camping-arbon.ch run: the site sat behind a DDoS-Guard "One moment, please…"
+  JS interstitial; the first capture got only 8 words, then the *agent* spent
+  ~2-3m diagnosing it (fingerprint vs JS challenge, Chrome availability) and
+  hand-rolling navigation-robust polling — though the challenge itself clears in
+  ~5s. Fix: bake **detect → auto-wait → re-capture** into the crawler,
+  deterministically (no LLM reasoning): (1) detect via thin-capture + a known
+  interstitial signature list (DDoS-Guard "One moment", Cloudflare "Checking your
+  browser"/"Just a moment", `cf-challenge`/`ddos-guard` markers, meta-refresh
+  splash); (2) `waitForFunction` for real content / markers gone / nav settle
+  (~12-15s bound), then re-capture; (3) fail fast + honest message on the
+  unsolvable class (Turnstile/CAPTCHA — waiting won't clear it, and solving is
+  off-limits). Generalizes across sites via one signature list + one wait loop;
+  turns ~2-3m of per-run model diagnosis into ~5-10s of deterministic wait.
 - Pre-warm bootstrap + craft skills (~30s), seed simplification — see
   `IMPROVEMENTS.md`.
 
