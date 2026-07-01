@@ -109,7 +109,33 @@ distribution. The ETA logic never "knows" what a milestone means.
   ships, this ETA auto-recalibrates (via version-tag). Can ship **before or after**
   the perf work. Pairs with the "ETA re-anchoring" note in `IMPROVEMENTS.md`.
 
-## Current state
-- Nothing executed for this. App on `webapp-build` (prod deployed). Seed data
-  present (prod 3, local wheelercat 2). Today's `estimateEta` = one-shot Bedrock
-  Haiku (commit `0340973`).
+## Current state — ✅ IMPLEMENTED + LOCALLY VALIDATED (2026-07-01)
+Executed on `webapp-build`. Changes:
+- `worker/runSession.ts`: `PIPELINE_VERSION="serial-1"` + `ETA_DEFAULTS`;
+  `runStartTs()` (MIN(run_events.ts), eviction-safe), `learnEta()` (backend-aware,
+  reopen-corruption guard), `primeEta()` (t=0 prior = historical mean, Haiku only
+  as no-history fallback), `reestimateEta(label)` (EMA glide, bounded, ≥elapsed).
+  Wired into brand_ready / variants_ready / variant_done / done. `persistResult`
+  folds `timings{byLabel,total,pipelineVersion,mode}` into result_json (no
+  migration) + backfills `mode` from D1 (eviction-safe). `rehydrateResult`
+  restores startedAt/timings/mode.
+- `shared/protocol.ts` + `driver/liveDriver.ts`: `eta` gains `startedAt` (run-start
+  anchor) → client `elapsed=now-startedAt` stays correct across re-anchors + reopen.
+- `web/scripts/backfill-timings.mjs`: seeds `result_json.timings` for existing
+  runs from run_events (ran on LOCAL: 12 runs). **Run on prod before deploy:**
+  `node scripts/backfill-timings.mjs --remote`.
+- `web/scripts/eta-e2e.mjs`: zero-cost local E2E (simulated ingest, no paid run).
+
+Refinements beyond the original plan: **backend-aware learning** (opus
+bedrock/uplift ≈23m vs cerebras ≈minutes never blend); **reopen-corruption
+guard** (drop fractions ∉(0,1) — reopens re-emit events with fresh ts).
+
+Validated locally (LLM-free): learner from 8 real bedrock runs → meanTotal 23.1m,
+f(brand_ready)=0.32, f(variants_ready)=0.53, f(variant_done)=0.68; E2E re-anchors
+2190→1761→1395→1212→1120s with `startedAt` present + timings persisted.
+
+Resolved open decisions: version-tag ✓; Haiku kept as no-history fallback ✓;
+timings in result_json (no migration) ✓; smoothing = server-side EMA ✓.
+
+NOT yet done: (a) a real paid run to watch primeEta live (simulation covers the
+same code path); (b) prod backfill + deploy + smoke + re-measure.

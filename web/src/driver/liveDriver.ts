@@ -90,7 +90,10 @@ function apply(ev: ServerEvent): void {
       store.set(ev.value ? { agentBusy: true, eta: undefined } : { agentBusy: false });
       break;
     case "eta":
-      store.set({ eta: { seconds: ev.seconds, at: Date.now() } });
+      // `seconds` is the TOTAL estimate anchored at `startedAt` (run start), so
+      // re-anchors mid-run and reopen both compute elapsed correctly. Fall back
+      // to receipt time only when the server didn't send an anchor (iterate).
+      store.set({ eta: { seconds: ev.seconds, at: ev.startedAt ?? Date.now() } });
       break;
     case "run.done":
       store.set({ agentBusy: false });

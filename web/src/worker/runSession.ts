@@ -53,6 +53,20 @@ function deriveProject(url: string): string {
   }
 }
 
+// ---- Dynamic ETA (self-calibrating, LLM-free) ----------------------------
+// Milestone timing model learned from past runs' result_json.timings, keyed on
+// milestone LABEL (never on hardcoded phase meaning) so it absorbs pipeline
+// changes automatically. Bump PIPELINE_VERSION when the run flow changes
+// (parallel craft, phase reorders) so old-shape runs don't blend with new ones.
+const PIPELINE_VERSION = "serial-1";
+type EtaModel = { f: Record<string, number>; meanTotal: number; p10: number; p90: number; hasHistory: boolean };
+// Fallback when there's no matching history — fractions (elapsed_at(label)/total)
+// + bounds seeded from the measured hirslanden.ch prod run (~29 min, 2026-07-01).
+const ETA_DEFAULTS: EtaModel = {
+  f: { brand_ready: 0.23, variants_ready: 0.92, variant_done: 0.97 },
+  meanTotal: 1740, p10: 12 * 60, p90: 45 * 60, hasHistory: false,
+};
+
 export class RunSession extends DurableObject<Env> {
   private sockets = new Set<WebSocket>();
   private events: ServerEvent[] = [];
@@ -76,6 +90,12 @@ export class RunSession extends DurableObject<Env> {
   // applies to; iterVersion cache-busts the iframe src on each re-render.
   private activeVariant?: VariantId;
   private iterVersion = 0;
+  // Dynamic ETA state (see PIPELINE_VERSION / ETA_DEFAULTS above).
+  private etaModel: EtaModel | null = null;
+  private startTs = 0;                            // run start (ms epoch) = MIN(run_events.ts)
+  private lastEta = 0;                            // last emitted TOTAL seconds (EMA glide)
+  private timings: Record<string, number> = {};  // milestone label -> elapsed ms (this run)
+  private mode = "";
 
   async fetch(request: Request): Promise<Response> {
     const runId = new URL(request.url).pathname.match(/^\/api\/runs\/([^/]+)\/ws$/)?.[1] ?? "";
@@ -203,6 +223,84 @@ export class RunSession extends DurableObject<Env> {
     return clamped * 60;
   }
 
+  /* ---- Dynamic ETA: milestone-anchored, self-calibrating, LLM-free ---- */
+
+  /** Run start epoch (ms). MIN(run_events.ts) is the true wall-clock anchor and
+   *  survives DO eviction/reopen. Cached after first read. */
+  private async runStartTs(): Promise<number> {
+    if (this.startTs) return this.startTs;
+    const row = await this.env.DB.prepare("SELECT MIN(ts) AS t FROM run_events WHERE run_id = ?").bind(this.runId).first<{ t: number | null }>();
+    this.startTs = row?.t ?? Date.now();
+    return this.startTs;
+  }
+
+  /** Learn the milestone-fraction model from recent completed REAL runs. Reads
+   *  result_json.timings (folded in on done); filters to the current pipeline
+   *  version; falls back to ETA_DEFAULTS when there's no matching history. */
+  private async learnEta(): Promise<EtaModel> {
+    try {
+      // Backend-aware: opus (bedrock/uplift) ≈29m vs cerebras ≈minutes — never
+      // blend their totals. Learn only from the current run's timing class.
+      const cls = this.mode === "bedrock" || this.mode === "uplift" ? ["bedrock", "uplift"]
+        : this.mode ? [this.mode] : ["bedrock", "uplift"];
+      const ph = cls.map(() => "?").join(",");
+      const rows = await this.env.DB.prepare(
+        `SELECT result_json FROM runs WHERE status='done' AND id != ? AND mode IN (${ph}) ORDER BY created_at DESC LIMIT 20`,
+      ).bind(this.runId, ...cls).all<{ result_json: string | null }>();
+      const totals: number[] = [];
+      const byLabel: Record<string, number[]> = {};
+      for (const row of rows.results ?? []) {
+        let tm: { byLabel?: Record<string, number>; total?: number; pipelineVersion?: string } | undefined;
+        try { tm = JSON.parse(row.result_json || "{}").timings; } catch { continue; }
+        if (!tm?.total || !tm.byLabel) continue;
+        if ((tm.pipelineVersion ?? "serial-1") !== PIPELINE_VERSION) continue;
+        totals.push(tm.total);
+        // Only genuine intermediate milestones (0 < elapsed < total). Guards
+        // against reopen-corrupted history where a re-emitted event's ts lands
+        // after run.done (fraction > 1); 'done' itself (==total) is excluded.
+        for (const [k, v] of Object.entries(tm.byLabel)) if (v > 0 && v < tm.total!) (byLabel[k] ??= []).push(v / tm.total!);
+      }
+      if (!totals.length) return ETA_DEFAULTS;
+      const mean = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length;
+      const pct = (a: number[], p: number) => { const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
+      const f: Record<string, number> = { ...ETA_DEFAULTS.f };
+      for (const [k, arr] of Object.entries(byLabel)) f[k] = mean(arr);
+      const secs = totals.map((t) => t / 1000);
+      // Widen bounds a touch (few samples) so a slower/faster run isn't over-clamped.
+      return { f, meanTotal: mean(secs), p10: Math.max(120, pct(secs, 0.1) * 0.7), p90: pct(secs, 0.9) * 1.3, hasHistory: true };
+    } catch { return ETA_DEFAULTS; }
+  }
+
+  /** t=0 prior: historical mean (LLM-free) when we have history, else the Haiku
+   *  guess as a weak fallback. Emits the initial ETA anchored at run start. */
+  private async primeEta(detail: string): Promise<void> {
+    const m = (this.etaModel = await this.learnEta());
+    const start = await this.runStartTs();
+    let seconds = m.meanTotal;
+    if (!m.hasHistory) { const h = await this.estimateEta("run", detail).catch(() => 0); if (h) seconds = h; }
+    seconds = Math.round(Math.min(m.p90, Math.max(m.p10, seconds)));
+    this.lastEta = seconds;
+    await this.emit({ t: "eta", seconds, startedAt: start });
+  }
+
+  /** Re-anchor when milestone `label` fires: total_est = elapsed / f(label),
+   *  EMA-smoothed + bounded, never below elapsed. Records elapsed for learning. */
+  private async reestimateEta(label: string): Promise<void> {
+    const m = this.etaModel ?? (this.etaModel = await this.learnEta());
+    const start = await this.runStartTs();
+    const elapsedMs = Date.now() - start;
+    this.timings[label] = elapsedMs;
+    const f = m.f[label];
+    if (!f || f <= 0) return; // unknown label: recorded for learning, no re-anchor
+    const elapsed = elapsedMs / 1000;
+    let est = elapsed / f;
+    if (this.lastEta > 0) est = 0.5 * est + 0.5 * this.lastEta; // glide, don't jerk
+    est = Math.min(m.p90, Math.max(m.p10, est));
+    est = Math.round(Math.max(elapsed + 5, est)); // never claim already-done
+    this.lastEta = est;
+    await this.emit({ t: "eta", seconds: est, startedAt: start });
+  }
+
   /* ---- the scripted run ---- */
 
   private async start(runId: string): Promise<void> {
@@ -211,6 +309,7 @@ export class RunSession extends DurableObject<Env> {
       .bind(runId)
       .first<{ url: string; mode: string }>();
     const url = row?.url ?? "https://www.knack.com/";
+    this.mode = row?.mode ?? "";
     this.project = deriveProject(url);
     await this.env.DB.prepare("UPDATE runs SET status = 'running', project = ? WHERE id = ?")
       .bind(this.project, runId)
@@ -448,7 +547,7 @@ export class RunSession extends DurableObject<Env> {
     await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock } });
     await this.emit({ t: "message.append", message: { id: "intro", role: "agent", lead: `On it — reading **${this.project}**, learning the brand, and composing directions.`, body: ["This normally takes a few minutes. I'll show the snapshot the moment it's ready."] } });
     await this.emit({ t: "screen", screen: "working" });
-    void this.estimateEta("run", url).then((seconds) => this.emit({ t: "eta", seconds })).catch(() => {});
+    void this.primeEta(url).catch(() => {});
 
     const token = crypto.randomUUID().replace(/-/g, "");
     await this.env.DB.prepare("UPDATE runs SET ingest_token = ? WHERE id = ?").bind(token, this.runId).run();
@@ -606,6 +705,7 @@ export class RunSession extends DurableObject<Env> {
       // Push the brand panel eagerly so the Brand view/tab populates live (the
       // client owns nav now and no longer sends a nav command to pull it).
       await this.emit({ t: "panel.brand", brandReviewUrl: this.realBrand.brandReviewUrl, tensions: this.realBrand.tensions });
+      await this.reestimateEta("brand_ready");
       await advance("extract", "analyze", 58, "brand surface captured");
       await this.emit({ t: "message.append", message: { id: `brand-${this.seq}`, role: "agent", lead: "Brand surface captured — open the snapshot." } });
       await this.emit({ t: "message.append", message: { id: "art-brand", role: "agent", artifact: { kind: "brand", label: "Brand review" } } });
@@ -618,6 +718,7 @@ export class RunSession extends DurableObject<Env> {
       // Push the variants gallery eagerly so the Directions/Workspace tabs enable
       // and variant chips open (the client no longer pulls it via a nav command).
       await this.emit({ t: "panel.variants", sharedFixes: this.realVariants.sharedFixes, variants: this.realVariants.variants });
+      await this.reestimateEta("variants_ready");
       await advance("analyze", "generate", 74, "three directions composed");
       await this.emit({ t: "message.append", message: { id: `var-${this.seq}`, role: "agent", lead: "Three directions ready." } });
     } else if (e.phase === "prototype" && e.event === "variant_done") {
@@ -625,6 +726,7 @@ export class RunSession extends DurableObject<Env> {
       await this.emit({ t: "tasks.init", tasks: this.tasks });
       await this.emit({ t: "status", text: `variant ${e.variant ?? ""} rendered` });
       await this.emit({ t: "progress", value: 88 });
+      await this.reestimateEta("variant_done");
       if (e.variant) {
         const vc = this.realVariants?.variants.find((v) => v.id === e.variant);
         await this.emit({ t: "message.append", message: { id: `art-${e.variant}`, role: "agent", artifact: { kind: "variant", variant: e.variant as VariantId, label: `Variant ${e.variant}${vc ? ` — ${vc.segWord}` : ""}` } } });
@@ -638,6 +740,7 @@ export class RunSession extends DurableObject<Env> {
         return this.fail("No variants were produced.");
       }
       this.finished = true;
+      this.timings.done = Date.now() - (await this.runStartTs()); // total (learner reads this)
       set("generate", "done");
       set("validate", "done");
       await this.persistResult();
@@ -657,14 +760,22 @@ export class RunSession extends DurableObject<Env> {
     // Read-modify-write (merge): only update fields we currently hold in memory,
     // so a cold/evicted DO handling a late milestone can't null out brand /
     // variants / palette that an earlier handler already saved.
-    const row = await this.env.DB.prepare("SELECT result_json FROM runs WHERE id = ?").bind(this.runId).first<{ result_json: string | null }>();
-    let cur: { brand?: unknown; variants?: unknown; palette?: unknown } = {};
+    const row = await this.env.DB.prepare("SELECT result_json, mode FROM runs WHERE id = ?").bind(this.runId).first<{ result_json: string | null; mode: string | null }>();
+    if (!this.mode && row?.mode) this.mode = row.mode; // survive eviction (start() may not have run this DO instance)
+    let cur: { brand?: unknown; variants?: unknown; palette?: unknown; startedAt?: number; timings?: unknown } = {};
     try { if (row?.result_json) cur = JSON.parse(row.result_json); } catch { /* ignore */ }
+    // Fold the ETA timings in on completion (total present) → the learner reads
+    // these; keep any prior timings for a mid-run persist.
+    const timings = this.finished && this.timings.done
+      ? { byLabel: this.timings, total: this.timings.done, pipelineVersion: PIPELINE_VERSION, mode: this.mode }
+      : cur.timings;
     const result = JSON.stringify({
       uplift: true,
       brand: this.realBrand ?? cur.brand ?? null,
       variants: this.realVariants ?? cur.variants ?? null,
       palette: this.realPalette ?? cur.palette ?? null,
+      startedAt: this.startTs || cur.startedAt || null,
+      timings,
     });
     await this.env.DB.prepare("UPDATE runs SET result_json = ? WHERE id = ?").bind(result, this.runId).run();
   }
@@ -678,11 +789,16 @@ export class RunSession extends DurableObject<Env> {
         brand?: { brandReviewUrl: string; tensions: { n: string; text: string }[] } | null;
         variants?: { sharedFixes: string[]; variants: VariantCard[] } | null;
         palette?: string[] | null;
+        startedAt?: number | null;
+        timings?: { byLabel?: Record<string, number>; mode?: string } | null;
       };
       this.uplift = !!r.uplift;
       if (r.brand) this.realBrand = r.brand;
       if (r.variants) this.realVariants = r.variants;
       if (r.palette?.length) this.realPalette = r.palette;
+      if (typeof r.startedAt === "number") this.startTs = r.startedAt;
+      if (r.timings?.byLabel && !Object.keys(this.timings).length) this.timings = r.timings.byLabel;
+      if (r.timings?.mode && !this.mode) this.mode = r.timings.mode;
     } catch {
       /* ignore malformed */
     }
