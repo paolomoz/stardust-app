@@ -60,9 +60,9 @@ const iterateTask =
   `You are in an ongoing session for variant ${variantId} of an existing redesign (its file is ${outputsDir}/${variantFile}; the persisted workspace is /workspace/stardust, deliverables in ${outputsDir}). ` +
   `The director says: "${instruction}". ` +
   `FIRST classify the intent, then do exactly ONE of the following:\n` +
-  `• QUESTION or comment (asking what you did, why, what you know, for an opinion/explanation, etc.): just ANSWER directly and conversationally from your knowledge + the persisted context (state.json, direction.md, PRODUCT/DESIGN, the variant file). Do NOT edit or upload any file. Finish with emit_milestone(phase="iterate", event="answer").\n` +
-  `• CHANGE request: apply it surgically to ${variantFile} — read the file, make exactly the requested change while keeping the brand palette, type, and one canonical CTA intact, and change nothing else. Do it through impeccable (pick the matching command — colorize, typeset, polish, motion, or a targeted craft edit — read its reference/<command>.md, follow it). Do NOT re-run extract or direct, and do NOT touch other variants. Then inspect in the browser (Playwright screenshot), write ${variantFile} back to ${outputsDir} + upload_artifact each changed path, and finish with emit_milestone(phase="iterate", event="done", data={"variant":"${variantId}","file":"${variantFile}"}).\n` +
-  `That milestone call is the LAST thing you do. When unsure, prefer answering — NEVER edit the page just to respond to a question.`;
+  `• QUESTION or comment (asking what you did, why, what you know, for an opinion/explanation, etc.): ANSWER it by calling reply_to_user with clean Markdown (short paragraphs, - bullets, **bold**) drawn from your knowledge + the persisted context (state.json, direction.md, PRODUCT/DESIGN, the variant file). Do NOT edit or upload any file. Then finish with emit_milestone(phase="iterate", event="answer").\n` +
+  `• CHANGE request: apply it surgically to ${variantFile} — read the file, make exactly the requested change while keeping the brand palette, type, and one canonical CTA intact, and change nothing else. Do it through impeccable (pick the matching command — colorize, typeset, polish, motion, or a targeted craft edit — read its reference/<command>.md, follow it). Do NOT re-run extract or direct, and do NOT touch other variants. Then inspect in the browser (Playwright screenshot), write ${variantFile} back to ${outputsDir} + upload_artifact each changed path, send a short reply_to_user summary of what changed, and finish with emit_milestone(phase="iterate", event="done", data={"variant":"${variantId}","file":"${variantFile}"}).\n` +
+  `Put everything the director should read in reply_to_user — your other output is shown only as dim 'thinking'. When unsure, prefer answering — NEVER edit the page just to respond to a question.`;
 
 const task = iterate ? iterateTask : upliftTask;
 const iterateHint = `Finish now: if it was a question, answer it and call emit_milestone(phase="iterate", event="answer"); if a change, upload the updated ${variantFile} and call emit_milestone(phase="iterate", event="done").`;
@@ -75,9 +75,9 @@ const SESSION_KEY = `_sessions/${variantId}.json`;
 const iterateFollowup =
   `The director says: "${instruction}". You have the full prior conversation above — use it. ` +
   `Classify the intent and do exactly ONE:\n` +
-  `• QUESTION/comment → ANSWER directly from the conversation + context; edit and upload nothing; finish with emit_milestone(phase="iterate", event="answer").\n` +
-  `• CHANGE → apply it surgically to ${variantFile} (keep brand palette, type, and one canonical CTA intact, change nothing else, through impeccable; reason about earlier turns for undo/refine), inspect in the browser, upload the updated file, and finish with emit_milestone(phase="iterate", event="done", data={"variant":"${variantId}","file":"${variantFile}"}).\n` +
-  `That milestone is the LAST thing you do. When unsure, prefer answering — NEVER edit the page just to answer a question.`;
+  `• QUESTION/comment → ANSWER via reply_to_user (clean Markdown) from the conversation + context; edit and upload nothing; finish with emit_milestone(phase="iterate", event="answer").\n` +
+  `• CHANGE → apply it surgically to ${variantFile} (keep brand palette, type, and one canonical CTA intact, change nothing else, through impeccable; reason about earlier turns for undo/refine), inspect in the browser, upload the updated file, send a short reply_to_user summary, and finish with emit_milestone(phase="iterate", event="done", data={"variant":"${variantId}","file":"${variantFile}"}).\n` +
+  `Put everything the director should read in reply_to_user — other output is dim 'thinking'. When unsure, prefer answering — NEVER edit the page just to answer a question.`;
 let initialMessages;
 
 // The design context an iteration needs (impeccable reads these). Snapshotted to

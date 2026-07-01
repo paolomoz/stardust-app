@@ -21,6 +21,7 @@ export const TOOL_SPECS = [
   { type: "function", function: { name: "edit_file", description: "Replace the first occurrence of old_str with new_str in a file.", parameters: { type: "object", properties: { path: { type: "string" }, old_str: { type: "string" }, new_str: { type: "string" } }, required: ["path", "old_str", "new_str"] } } },
   { type: "function", function: { name: "emit_milestone", description: "Push a progress milestone to the live web UI. Call the INSTANT a phase boundary happens. Shapes: extract.started; extract.seed{seed}; extract.tensions{items:[{n,text}]}; extract.brand_ready{brandReview,palette:[hex,…]}; direct.variants_ready{sharedFixes,variants:[{id,title,pitch,whatif,role,file,thumb}]}; prototype.variant_done{variant}; done.", parameters: { type: "object", properties: { phase: { type: "string" }, event: { type: "string" }, data: { type: "object", description: "the milestone payload fields for this phase/event" } }, required: ["phase"] } } },
   { type: "function", function: { name: "upload_artifact", description: "Upload one deliverable to the UI by its path relative to /mnt/session/outputs (e.g. brand-review.html, assets/thumb-A.png). Upload the brand surface as soon as it exists and each variant as it finishes.", parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } } },
+  { type: "function", function: { name: "reply_to_user", description: "Send a message to the director (the human) — the ONLY channel they read prominently. Use it for ALL user-facing communication: answers to questions, explanations, and a short summary after making a change. Write clean, readable Markdown — short paragraphs separated by blank lines, `- ` bullet lists, and **bold** for key terms. Everything else you output is internal reasoning shown to the director only as dim 'thinking', so never bury the actual answer there.", parameters: { type: "object", properties: { message: { type: "string", description: "the user-facing message, in Markdown" } }, required: ["message"] } } },
 ];
 
 export function makeTools({ workdir, outputsDir, ingest }) {
@@ -55,6 +56,9 @@ export function makeTools({ workdir, outputsDir, ingest }) {
     },
     async upload_artifact({ path }) {
       try { return await ingest.artifact(path); } catch (e) { return `[error] ${e.message}`; }
+    },
+    async reply_to_user({ message }) {
+      try { await ingest.event({ type: "reply", text: String(message ?? "") }); return "delivered to the director"; } catch (e) { return `[error] ${e.message}`; }
     },
   };
 }

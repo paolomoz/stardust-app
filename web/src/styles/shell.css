@@ -150,6 +150,18 @@ body.ready .stagger > * { animation-play-state: running; }
 .msg .clist { margin: 2px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
 .msg .clist li { display: flex; gap: 8px; align-items: baseline; font-size: 13.5px; color: var(--fg-muted); }
 .msg .clist .ck { color: var(--success); font-size: 12px; }
+/* Model reasoning: dim, secondary — clearly internal "thinking", not a reply. */
+.msg.think .lead { color: var(--fg-faint); font-size: 13px; line-height: 1.5; font-weight: 400; }
+.msg.think .star { opacity: .35; }
+/* User-facing reply (reply_to_user): prominent + full markdown. */
+.msg.reply .reply-body { font: 400 15px/1.55 var(--text); color: var(--fg); }
+.msg.reply .reply-body p { margin: 0; color: var(--fg); font-size: 15px; line-height: 1.55; }
+.msg.reply .reply-body p + p, .msg.reply .reply-body .md-ul, .msg.reply .reply-body .md-h { margin-top: 10px; }
+.msg.reply .reply-body .md-h { font: 600 13px var(--text); color: var(--fg); text-transform: none; }
+.msg.reply .reply-body .md-ul { padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.msg.reply .reply-body .md-ul li { display: flex; gap: 8px; color: var(--fg-muted); font-size: 14px; line-height: 1.5; }
+.msg.reply .reply-body .md-ul li::before { content: "•"; color: var(--amber-deep); flex: none; }
+.msg.reply .reply-body strong { font-weight: 600; color: var(--fg); }
 .msg.user { align-items: flex-end; }
 .msg.user .bubble { background: var(--surface); border: 1px solid var(--hairline-soft); color: var(--fg); padding: 9px 13px; border-radius: 13px 13px 4px 13px; font-size: 14px; max-width: 88%; box-shadow: 0 1px 2px rgba(26,31,56,0.04); }
 

@@ -693,9 +693,14 @@ export class RunSession extends DurableObject<Env> {
     if (!this.runId) this.runId = runId;
     const e = (ev ?? {}) as { type?: string; text?: string; name?: string; phase?: string; event?: string; seed?: string; items?: { n: string; text: string }[]; brandReview?: string; sharedFixes?: string[]; variants?: unknown[]; variant?: string; file?: string; message?: string; palette?: string[] };
 
-    // Narration / tool activity from the open-loop runtime → conversation thread.
+    // User-facing message (reply_to_user) → prominent, markdown-rendered.
+    if (e.type === "reply" && e.text) {
+      await this.emit({ t: "message.append", message: { id: `r-${this.seq}`, role: "agent", md: e.text } });
+      return;
+    }
+    // Model reasoning → dim "thinking" (internal, not a user-facing reply).
     if (e.type === "narration" && e.text) {
-      await this.emit({ t: "message.append", message: { id: `m-${this.seq}`, role: "agent", lead: e.text } });
+      await this.emit({ t: "message.append", message: { id: `m-${this.seq}`, role: "agent", lead: e.text, thinking: true } });
       return;
     }
     if (e.type === "tool") {

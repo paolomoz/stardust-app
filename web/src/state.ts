@@ -23,6 +23,8 @@ export interface Message {
   role: "agent" | "user";
   lead?: string;         // first emphasized line (agent)
   body?: string[];       // following paragraphs
+  md?: string;           // user-facing markdown (reply_to_user) — rendered prominent + formatted
+  thinking?: boolean;    // model reasoning — rendered dim/secondary, not a user-facing reply
   text?: string;         // user bubble text
   seed?: string;         // optional seed chip hash
   plan?: PlanBlock;

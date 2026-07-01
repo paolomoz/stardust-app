@@ -63,6 +63,28 @@ export function fmtText(s: string): string {
     .replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
+/** Block-level Markdown for user-facing replies: paragraphs (blank-line
+ *  separated), `- ` bullet lists, `#` headings; inline via fmtText (which
+ *  escapes first, so this is safe on untrusted text). */
+export function fmtMarkdown(s: string): string {
+  const out: string[] = [];
+  let list: string[] = [];
+  let para: string[] = [];
+  const flushList = () => { if (list.length) { out.push(`<ul class="md-ul">${list.map((li) => `<li>${fmtText(li)}</li>`).join("")}</ul>`); list = []; } };
+  const flushPara = () => { if (para.length) { out.push(`<p>${fmtText(para.join(" "))}</p>`); para = []; } };
+  for (const raw of s.replace(/\r/g, "").split("\n")) {
+    const t = raw.trim();
+    if (!t) { flushList(); flushPara(); continue; }
+    const h = t.match(/^#{1,6}\s+(.*)$/);
+    const b = t.match(/^[-*]\s+(.*)$/);
+    if (h) { flushList(); flushPara(); out.push(`<h4 class="md-h">${fmtText(h[1])}</h4>`); }
+    else if (b) { flushPara(); list.push(b[1]); }
+    else { flushList(); para.push(t); }
+  }
+  flushList(); flushPara();
+  return out.join("");
+}
+
 function artifactCard(a: ArtifactRef): string {
   return `<button class="artifact-card" data-artifact="${esc(a.kind)}"${a.variant ? ` data-variant="${esc(a.variant)}"` : ""}>
     <span class="ac-ic">▦</span>
@@ -81,12 +103,17 @@ export function message(m: Message, seedNote: string): string {
   if (m.artifact) {
     return `<div class="msg art">${artifactCard(m.artifact)}</div>`;
   }
+  // User-facing reply (reply_to_user) — prominent, full markdown.
+  if (m.md) {
+    return `<div class="msg fade reply"><div class="reply-body">${fmtMarkdown(m.md)}</div></div>`;
+  }
   const parts: string[] = [];
   if (m.lead) parts.push(`<div class="lead"><span class="star">✦</span> ${fmtText(m.lead)}</div>`);
   for (const p of m.body ?? []) parts.push(`<p>${fmtText(p)}</p>`);
   if (m.plan) parts.push(planBlock(m.plan));
   if (m.seed) parts.push(seedChip(m.seed, seedNote));
-  return `<div class="msg fade">${parts.join("")}</div>`;
+  // Model reasoning → dim "thinking" (internal), distinct from user-facing replies.
+  return `<div class="msg fade${m.thinking ? " think" : ""}">${parts.join("")}</div>`;
 }
 
 export function thread(messages: Message[], seedNote: string): string {
