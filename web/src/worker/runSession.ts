@@ -124,6 +124,9 @@ export class RunSession extends DurableObject<Env> {
   // the build fan-out draining; a stray `done` milestone from a worker (or the
   // phase-1 model) must not finish the run early.
   private parallelUplift = false;
+  // Per-variant build retry count — a worker that finishes without uploading its
+  // page (observed in prod) gets one re-craft before the variant is dropped.
+  private buildRetries: Record<string, number> = {};
   // Deploy/rollout: the run's EDS push state (one code branch + one DA folder
   // per project). Persisted so it survives eviction and reopen.
   private deployState?: DeployState;
@@ -669,7 +672,14 @@ export class RunSession extends DurableObject<Env> {
       // Secrets don't reach the Container DO's env (only vars do), so pass the
       // model keys + ingest origin from THIS DO's env (which has them) in the body.
       const job = { ...body, modelEnv: this.modelEnv() };
-      const c = getContainer(this.env.SANDBOX, this.runId);
+      // One container instance PER JOB (keyed by runId+jobId), not one per run:
+      // a standard-2 is 1 vCPU, so co-locating the parallel build/template jobs
+      // on a single instance would serialize them (CPU-bound) and risk OOM from
+      // concurrent Chromium. Distinct ids give each its own instance (the local
+      // runner already isolates jobs into separate docker containers).
+      const jobId = typeof body.jobId === "string" ? body.jobId : "";
+      const key = jobId ? `${this.runId}-${jobId}` : this.runId;
+      const c = getContainer(this.env.SANDBOX, key);
       const r = await c.fetch(new Request("http://sandbox/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(job) }));
       if (!r.ok) throw new Error(`container ${r.status}`);
       return;
@@ -963,6 +973,38 @@ export class RunSession extends DurableObject<Env> {
    *  when the parallel build fan-out drains with ≥1 variant delivered. */
   private async completeRun(): Promise<void> {
     if (this.finished) return;
+    // Parallel builds: never finish showing a variant whose page 404s. Verify
+    // each gallery variant's page is in R2; re-craft a missing one once, then
+    // drop it if the retry also fails.
+    if (this.parallelUplift && this.realVariants?.variants.length) {
+      const missing: VariantCard[] = [];
+      for (const v of this.realVariants.variants) {
+        const key = `artifacts/${this.runId}/${RunSession.fileOfSrc(v.src)}`;
+        if (!(await this.env.BUCKET.head(key).catch(() => null))) missing.push(v);
+      }
+      if (missing.length) {
+        const creds = await this.jobCreds();
+        const retriable = creds ? missing.filter((v) => (this.buildRetries[v.id] ?? 0) < 1) : [];
+        if (retriable.length) {
+          for (const v of retriable) { this.buildRetries[v.id] = (this.buildRetries[v.id] ?? 0) + 1; this.pendingBuilds.push(v.id); }
+          await this.persistResult();
+          await this.emit({ t: "busy", value: true });
+          await this.emit({ t: "message.append", message: { id: `bretry-${this.seq}`, role: "agent", lead: `Re-crafting variant ${retriable.map((v) => v.id).join(", ")} — the first build didn't land.` } });
+          for (const v of retriable) {
+            try {
+              await this.triggerRuntime({ runId: this.runId, token: creds!.token, backend: creds!.backend, mode: "build", jobId: `bld-${v.id}-r${this.buildRetries[v.id]}`, variantId: v.id, variantFile: RunSession.fileOfSrc(v.src) });
+            } catch { await this.buildSettled(v.id, false); }
+          }
+          return; // completeRun runs again when the retries settle
+        }
+        // Retry exhausted (or no creds): drop the broken variants so none 404s.
+        const keep = this.realVariants.variants.filter((v) => !missing.includes(v));
+        this.realVariants = { ...this.realVariants, variants: keep };
+        await this.emit({ t: "message.append", message: { id: `bdrop-${this.seq}`, role: "agent", lead: `Couldn't build variant ${missing.map((v) => v.id).join(", ")} — showing the ${keep.length} that rendered.` } });
+        await this.emit({ t: "panel.variants", sharedFixes: this.realVariants.sharedFixes, variants: keep });
+      }
+    }
+
     // Honest empty state: a real run that produced no variants (bot-wall /
     // too-sparse brand) should say so, not fall back to demo cards.
     const n = this.realVariants?.variants?.length ?? 0;
@@ -1601,6 +1643,7 @@ export class RunSession extends DurableObject<Env> {
 
   /** Publish the already-deployed pages to aem.live. */
   private async runGoLive(): Promise<void> {
+    if (this.env.SANDBOX) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Publishing to AEM currently runs on the local environment only." } }); return; }
     const d = this.deployState;
     if (!d || !d.pages.some((p) => p.status === "previewed" || p.status === "live")) {
       await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Deploy to preview first — then I can take it live." } });
@@ -1617,6 +1660,7 @@ export class RunSession extends DurableObject<Env> {
   /** Whole-site rollout: prototype every remaining discovered page, then deploy
    *  the lot (live). Continues via continueRollout() as template jobs finish. */
   private async runRollout(): Promise<void> {
+    if (this.env.SANDBOX) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Whole-site rollout currently runs on the local environment only." } }); return; }
     if (this.deployState?.busy) {
       await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "A deploy is already in flight — rollout will have to wait for it." } });
       return;
