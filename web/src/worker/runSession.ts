@@ -11,6 +11,8 @@ import type { DeployPage, DeployState, Message, PageCandidate, RailState, Screen
 import type { ClientCommand, ServerEvent } from "../shared/protocol";
 import { callHaiku } from "./haiku";
 import {
+  KNACK_EDS,
+  KNACK_PAGES,
   KNACK_PALETTE,
   KNACK_PROJECT,
   KNACK_SEED,
@@ -125,6 +127,9 @@ export class RunSession extends DurableObject<Env> {
   // Deploy/rollout: the run's EDS push state (one code branch + one DA folder
   // per project). Persisted so it survives eviction and reopen.
   private deployState?: DeployState;
+  // Demo (scripted) run: the whole ladder is simulated offline — action
+  // commands (prototype/deploy/rollout) never spawn a container or touch DA.
+  private demo = false;
   // Progress is monotonic — deterministic markers and model milestones interleave
   // and must never pull the bar backwards.
   private lastProgress = 0;
@@ -423,6 +428,13 @@ export class RunSession extends DurableObject<Env> {
   /* ---- M2 scripted demo run ---- */
 
   private async runScripted(url: string, runId: string): Promise<void> {
+    // Everything downstream is simulated offline — no containers, no DA.
+    this.demo = true;
+    // Seed the real accumulators with demo content so the prototype/deploy/
+    // rollout screens (which read these) work exactly as in a live run.
+    this.realVariants = { sharedFixes: KNACK_SHARED_FIXES, variants };
+    this.realPages = KNACK_PAGES.map((p) => ({ ...p }));
+    this.protoVariant = "C";
     const tasks = knackTasks();
     tasks[0].status = "run";
     // Content first, screen last — so the screen mounts with its data present.
@@ -470,9 +482,145 @@ export class RunSession extends DurableObject<Env> {
       await this.toBrand();
       this.schedule(1000, async () => {
         await this.toVariants();
-        this.schedule(1000, () => this.toWorkspace("C"));
+        this.schedule(1000, async () => {
+          await this.toWorkspace("C");
+          // Publish the prototype-phase page pool so the Prototype rung is a
+          // populated picker the moment the user gets there.
+          await this.emit({ t: "panel.pages", pages: this.realPages });
+          // Persist so a reopen (/?run=<id>) restores the demo (variants, pages,
+          // and the demo flag) and keeps the ladder offline.
+          await this.persistResult();
+        });
       });
     });
+  }
+
+  /* ---- demo (scripted) simulators: the prototype/deploy/rollout ladder,
+     played entirely offline — no containers, no runner, no DA. They mutate the
+     same state + emit the same panels as the live paths, so the screens are
+     identical; only the work is faked with timers + the bundled demo artifact. ---- */
+
+  private demoWait(ms: number): Promise<void> {
+    return new Promise((res) => { this.timers.push(setTimeout(res, ms) as unknown as number); });
+  }
+
+  /** Demo artifact reused as every prototyped/deployed page's preview. */
+  private demoPageSrc(): string { return `${ART}/home-C-cinematic.html`; }
+
+  /** Prototype selected pages — queued → running → done, in the pinned variant. */
+  private async demoTemplates(slugs: string[]): Promise<void> {
+    const pick = slugs.length ? slugs : this.realPages.map((p) => p.slug);
+    const targets = this.realPages.filter((p) => pick.includes(p.slug)
+      && !this.realTemplates.some((t) => t.slug === p.slug && (t.status === "done" || t.status === "running")));
+    if (!targets.length) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Nothing new to prototype — pick other pages." } }); return; }
+    const variant = this.protoVariant ?? "C";
+    for (const t of targets) this.upsertTemplate({ slug: t.slug, title: t.title, url: t.url, variant, status: "queued" });
+    await this.emitTemplates();
+    await this.emit({ t: "busy", value: true });
+    await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Prototyping ${targets.length} page${targets.length > 1 ? "s" : ""} in variant **${variant}**… (demo)` } });
+    await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", busy: true, clock: `⏱ prototyping ${targets.length} page(s)` }) });
+    for (const t of targets) {
+      this.upsertTemplate({ slug: t.slug, title: t.title, url: t.url, variant, status: "running" });
+      await this.emitTemplates();
+      await this.demoWait(1100);
+      this.upsertTemplate({ slug: t.slug, title: t.title, url: t.url, variant, status: "done", src: this.demoPageSrc() });
+      await this.emitTemplates();
+      await this.emit({ t: "message.append", message: { id: `tpl-${t.slug}-${this.seq}`, role: "agent", lead: `Page **${t.title}** prototyped in variant ${variant}.` } });
+    }
+    await this.emit({ t: "busy", value: false });
+    await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", clock: "⏱ pages ready" }) });
+  }
+
+  private demoDeployState(pages: { slug: string; title: string }[]): void {
+    const prev = this.deployState;
+    const merged: DeployPage[] = [...(prev?.pages ?? [])];
+    for (const p of pages) {
+      const row: DeployPage = { slug: p.slug, title: p.title, status: "converting" };
+      const i = merged.findIndex((x) => x.slug === p.slug);
+      if (i >= 0) merged[i] = { ...merged[i], ...row }; else merged.push(row);
+    }
+    this.deployState = { ...KNACK_EDS, variant: this.protoVariant ?? "C", live: prev?.live ?? false, busy: true, rollout: prev?.rollout ?? false, pages: merged };
+  }
+
+  /** Convert → push → preview (→ live), all faked with timers. */
+  private async demoDeploy(slugs: string[], opts: { live?: boolean; fromRollout?: boolean } = {}): Promise<void> {
+    const want = slugs.length ? slugs : ["home"];
+    const pages = want.map((s) => s === "home"
+      ? { slug: "home", title: "Home" }
+      : { slug: s, title: this.realTemplates.find((t) => t.slug === s)?.title ?? this.realPages.find((p) => p.slug === s)?.title ?? s })
+      .filter((p) => p.slug === "home" || this.realTemplates.some((t) => t.slug === p.slug && t.status === "done"));
+    if (!pages.length) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Nothing deployable yet — prototype the pages first." } }); return; }
+    this.demoDeployState(pages);
+    if (opts.fromRollout && this.deployState) this.deployState.rollout = true;
+    await this.emitDeploy();
+    const d = this.deployState!;
+    await this.emit({ t: "message.append", message: { id: `dp-${this.seq}`, role: "agent", lead: `Converting **${pages.length} page${pages.length > 1 ? "s" : ""}** of variant ${d.variant} into Edge Delivery blocks — branch \`${d.branch}\`, folder \`/${d.project}\`. (demo)` } });
+    await this.emit({ t: "busy", value: true });
+    await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", busy: true, clock: "⏱ converting to EDS" }) });
+    await this.demoWait(1200);
+    for (const p of pages) { this.setDeployPage(p.slug, { status: "pushing" }); }
+    await this.emitDeploy();
+    await this.emit({ t: "message.append", message: { id: `dp2-${this.seq}`, role: "agent", lead: `Blocks ready — pushing code to \`${d.branch}\` and content to DA…` } });
+    await this.demoWait(1400);
+    for (const p of pages) {
+      this.setDeployPage(p.slug, { status: "previewed", previewUrl: this.demoPageSrc() });
+      await this.emitDeploy();
+      await this.demoWait(400);
+    }
+    if (opts.live) {
+      for (const p of pages) { this.setDeployPage(p.slug, { status: "live", liveUrl: this.demoPageSrc() }); }
+      d.live = true;
+      await this.emitDeploy();
+    }
+    d.busy = false;
+    if (opts.fromRollout) d.rollout = false;
+    await this.emitDeploy();
+    await this.emit({ t: "busy", value: false });
+    const home = `${d.previewHost}/${d.project}/`;
+    await this.emit({ t: "message.append", message: { id: `dpd-${this.seq}`, role: "agent", md: opts.live
+      ? `✓ **Live** — the site is published. (demo)\n\n- Preview: ${home}\n- Live: ${home.replace(".aem.page", ".aem.live")}`
+      : `✓ **Deployed to preview** — ${home} (demo)\n\nSay "go live" or hit the button to publish.` } });
+    await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", clock: opts.live ? "⏱ live" : "⏱ previewed" }) });
+  }
+
+  private async demoGoLive(): Promise<void> {
+    const d = this.deployState;
+    if (!d || !d.pages.some((p) => p.status === "previewed" || p.status === "live")) {
+      await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Deploy to preview first — then I can take it live." } });
+      return;
+    }
+    await this.demoDeploy(d.pages.map((p) => p.slug), { live: true });
+  }
+
+  /** Whole-site rollout: prototype every remaining page, then deploy all live. */
+  private async demoRollout(): Promise<void> {
+    await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Rolling out **the whole site** — prototyping the remaining pages in variant ${this.protoVariant ?? "C"}, then deploying everything live. (demo)` } });
+    if (this.deployState) this.deployState.rollout = true; else this.demoDeployState([]);
+    await this.emitDeploy();
+    await this.demoTemplates(this.realPages.map((p) => p.slug));
+    const slugs = ["home", ...this.realTemplates.filter((t) => t.status === "done").map((t) => t.slug)];
+    await this.demoDeploy(slugs, { live: true, fromRollout: true });
+  }
+
+  private async demoAddVariant(instruction: string): Promise<void> {
+    const id = this.nextVariantId();
+    await this.emit({ t: "busy", value: true });
+    await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `On it — a new direction (variant **${id}**): ${instruction} (demo)` } });
+    await this.demoWait(1400);
+    const base = this.realVariants!.variants.find((v) => v.recommended) ?? this.realVariants!.variants[0];
+    const card: VariantCard = { ...base, id, title: instruction.slice(0, 32) || `Direction ${id}`, recommended: false, segLabel: `${id} · ${base.segWord}`, whatif: instruction, faithful: undefined };
+    this.realVariants = { sharedFixes: this.realVariants!.sharedFixes, variants: [...this.realVariants!.variants, card] };
+    await this.emit({ t: "panel.variants", sharedFixes: this.realVariants.sharedFixes, variants: this.realVariants.variants });
+    await this.emit({ t: "message.append", message: { id: `nv-${id}-${this.seq}`, role: "agent", lead: `New direction ready — variant **${id}**.` } });
+    await this.emit({ t: "busy", value: false });
+  }
+
+  private async demoIterate(text: string): Promise<void> {
+    await this.emit({ t: "busy", value: true });
+    await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `On it — variant **${this.activeVariant ?? "C"}**: ${text} (demo)` } });
+    await this.demoWait(1500);
+    await this.emit({ t: "busy", value: false });
+    await this.emit({ t: "message.append", message: { id: `it-${this.seq}`, role: "agent", lead: `Done — re-rendered variant **${this.activeVariant ?? "C"}**. Ask for another change.` } });
   }
 
   /* ---- New-architecture run: open-loop runtime in the sandbox. backend selects
@@ -941,6 +1089,7 @@ export class RunSession extends DurableObject<Env> {
         ? { pending: this.pendingBuilds, ok: this.buildsSucceeded, parallel: this.parallelUplift }
         : (cur.builds ?? null),
       deploy: this.deployState ?? (cur as { deploy?: unknown }).deploy ?? null,
+      demo: this.demo || (cur as { demo?: boolean }).demo || false,
       iter: this.iterating
         ? { v: this.iterateVariant ?? null, f: this.iterateFile ?? null, start: this.iterateStart || 0 }
         : null,
@@ -967,6 +1116,7 @@ export class RunSession extends DurableObject<Env> {
         builds?: { pending?: string[]; ok?: number; parallel?: boolean } | null;
         iter?: { v?: string | null; f?: string | null; start?: number } | null;
         deploy?: DeployState | null;
+        demo?: boolean;
       };
       this.uplift = !!r.uplift;
       if (r.brand) this.realBrand = r.brand;
@@ -992,6 +1142,7 @@ export class RunSession extends DurableObject<Env> {
         this.iterateStart = r.iter.start ?? 0;
       }
       if (r.deploy && !this.deployState) this.deployState = r.deploy;
+      if (r.demo) this.demo = true;
     } catch {
       /* ignore malformed */
     }
@@ -1129,17 +1280,27 @@ export class RunSession extends DurableObject<Env> {
     if (cmd.t === "send") return this.onSend(cmd.screen, cmd.text);
     if (cmd.t === "addVariant") {
       await this.emit({ t: "message.append", message: { id: `u-${this.seq}`, role: "user", text: cmd.instruction } });
-      return this.runAddVariant(cmd.instruction);
+      return this.demo ? this.demoAddVariant(cmd.instruction) : this.runAddVariant(cmd.instruction);
     }
-    if (cmd.t === "prototype") return this.runTemplates(cmd.slugs);
     if (cmd.t === "setProtoVariant") { this.protoVariant = cmd.variant; await this.emitTemplates(); return; }
-    if (cmd.t === "deploy") return this.runDeploy(cmd.slugs);
-    if (cmd.t === "golive") return this.runGoLive();
-    if (cmd.t === "rollout") return this.runRollout();
+    // The action rungs — simulated offline in the demo, real jobs otherwise.
+    if (cmd.t === "prototype") return this.demo ? this.demoTemplates(cmd.slugs) : this.runTemplates(cmd.slugs);
+    if (cmd.t === "deploy") return this.demo ? this.demoDeploy(cmd.slugs) : this.runDeploy(cmd.slugs);
+    if (cmd.t === "golive") return this.demo ? this.demoGoLive() : this.runGoLive();
+    if (cmd.t === "rollout") return this.demo ? this.demoRollout() : this.runRollout();
   }
 
   private async onSend(screen: ScreenId, text: string): Promise<void> {
     await this.emit({ t: "message.append", message: { id: `u-${this.seq}`, role: "user", text } });
+    if (this.demo) {
+      if (screen === "workspace") return this.demoIterate(text);
+      if (screen === "variants") return this.demoAddVariant(text);
+      if (screen === "prototype" || screen === "deploy") {
+        await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "In the demo, use the page picker and the Deploy / Roll out buttons to drive this step." } });
+        return;
+      }
+      return;
+    }
     if (screen === "workspace") return this.iterate(text);
     // Directions chat → explore a new direction; Prototype chat → render/ask about a page.
     if (screen === "variants") return this.runAddVariant(text);
