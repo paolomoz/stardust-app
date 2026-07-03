@@ -27,10 +27,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // AuthorKit is the decided deploy runtime (prior plugin reviews: it converts
 // better than vanilla boilerplate; the deploy skill is validated against it).
-// PINNED ref — never a tracking branch (upstream runtime drift once bricked a
-// repo; the bootstrap script itself refuses unpinned main).
-// aemsites/author-kit main as of 2026-06-08.
-const AUTHORKIT_REF = process.env.AUTHORKIT_REF || "b673ff3d6823709b5161305659a8236872c5eb02";
+// Source mode: --from-sibling a known-good ALREADY-BOOTSTRAPPED stardust site
+// repo (the script's recommended path). Upstream aemsites/author-kit does NOT
+// carry the static-fragment postlcp.js the mandatory edits verify — that
+// variant lives only in bootstrapped site repos, so --ref against upstream
+// hard-fails by design. hirslanden-stardust-eds carries both verified edits.
+const AUTHORKIT_SIBLING = process.env.AUTHORKIT_SIBLING || "/Users/paolo/stardust/migrations/hirslanden-stardust-eds";
 // The bootstrap script ships with the baked deploy skill; build.sh stages it
 // under sandbox/skills/, which is host-readable next to this module.
 const BOOTSTRAP_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "sandbox", "skills", "stardust", "deploy", "scripts", "bootstrap-authorkit.mjs");
@@ -105,11 +107,20 @@ export async function publish(job, { log = console.log } = {}) {
 
     // AuthorKit runtime port (branch-scoped; main stays vanilla). Idempotent —
     // the script verifies its two mandatory edits and hard-fails if they can't
-    // be applied, so a drifted source can't silently ship a broken runtime.
-    if (!existsSync(join(repoDir, "scripts", "ak.js"))) {
+    // be applied, so a drifted source can't silently ship a broken runtime. A
+    // failed attempt leaves a hybrid tree, so reset before retrying.
+    const plPath = join(repoDir, "scripts", "postlcp.js");
+    const runtimeOk = existsSync(join(repoDir, "scripts", "ak.js"))
+      && existsSync(plPath) && /el\.className\s*=\s*name/.test(readFileSync(plPath, "utf8"));
+    if (!runtimeOk) {
       if (!existsSync(BOOTSTRAP_SCRIPT)) throw new Error(`bootstrap-authorkit.mjs not staged at ${BOOTSTRAP_SCRIPT} — run sandbox/build.sh`);
-      log(`[eds] bootstrapping AuthorKit runtime on ${branch} (ref ${AUTHORKIT_REF.slice(0, 8)})`);
-      execFileSync("node", [BOOTSTRAP_SCRIPT, "--target", repoDir, "--ref", AUTHORKIT_REF], { stdio: ["ignore", "pipe", "pipe"] });
+      if (!existsSync(join(AUTHORKIT_SIBLING, "scripts", "ak.js"))) throw new Error(`AuthorKit sibling not found at ${AUTHORKIT_SIBLING} (set AUTHORKIT_SIBLING)`);
+      git(repoDir, ["checkout", "--", "."]); // drop any hybrid leftovers from a failed port
+      log(`[eds] bootstrapping AuthorKit runtime on ${branch} (from sibling ${AUTHORKIT_SIBLING})`);
+      // The script exits 0 even on a failed mandatory edit — detect via output.
+      const out = execFileSync("node", [BOOTSTRAP_SCRIPT, "--target", repoDir, "--from-sibling", AUTHORKIT_SIBLING], { encoding: "utf8" });
+      if (/FAILED|FAIL\s/.test(out)) throw new Error(`AuthorKit bootstrap failed a mandatory edit:\n${out.split("\n").filter((l) => /FAIL|FAILED/.test(l)).join("\n")}`);
+      log(`[eds] authorkit bootstrapped (sibling port, edits verified)`);
       await report("code_pushed", { branch, detail: "authorkit bootstrapped" });
     }
 
