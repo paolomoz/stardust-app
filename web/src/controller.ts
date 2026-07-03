@@ -59,4 +59,8 @@ export interface App {
   goLive(): void;
   /** Whole-site rollout: prototype every remaining page, then deploy it live. */
   rollout(): void;
+  /** Enter the audit phase (score the original or the deployed site). */
+  goAudit(): void;
+  /** Run stardust:audit on the given target. */
+  runAudit(target: "original" | "deployed"): void;
 }

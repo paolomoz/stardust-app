@@ -6,6 +6,7 @@
    Imported by BOTH the client (src/*) and the Worker (worker/*).
    =========================================================================== */
 import type {
+  AuditState,
   DeployState,
   Message,
   PageCandidate,
@@ -36,6 +37,7 @@ export type ServerEvent =
   | { t: "panel.pages"; pages: PageCandidate[] }                               // prototype phase: discovered pages
   | { t: "panel.templates"; protoVariant: string; templates: TemplatePage[] }  // prototype phase: page prototypes
   | { t: "panel.deploy"; deploy: DeployState }                                 // deploy/rollout phase: EDS push state
+  | { t: "panel.audit"; audit: AuditState }                                    // audit phase: scorecard state
   | { t: "rail"; rail: RailState }
   | { t: "busy"; value: boolean }       // agent working ↔ idle (drives the chat thinking dots)
   | { t: "eta"; seconds: number; startedAt?: number } // ETA bar: total estimate (s) + run-start epoch anchor; re-emitted (re-anchored) at each milestone
@@ -54,7 +56,8 @@ export type ClientCommand =
   | { t: "setProtoVariant"; variant: VariantId }   // pin which variant direction the prototype phase uses
   | { t: "deploy"; slugs: string[] }               // convert + push pages to AEM Edge Delivery (preview)
   | { t: "golive" }                                // publish the deployed pages to aem.live
-  | { t: "rollout" };                              // prototype every remaining page, then deploy the site live
+  | { t: "rollout" }                               // prototype every remaining page, then deploy the site live
+  | { t: "audit"; target: "original" | "deployed" }; // run stardust:audit on the site (or the deployed preview)
 
 export const isServerEvent = (v: unknown): v is ServerEvent =>
   typeof v === "object" && v !== null && typeof (v as { t?: unknown }).t === "string";

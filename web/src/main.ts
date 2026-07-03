@@ -13,6 +13,7 @@ import { variants } from "./screens/variants";
 import { workspace } from "./screens/workspace";
 import { prototype } from "./screens/prototype";
 import { deploy } from "./screens/deploy";
+import { audit } from "./screens/audit";
 import { createConversation } from "./components/conversation";
 import { mountToasts } from "./components/toasts";
 import { mountSwitcher } from "./components/switcher";
@@ -20,7 +21,7 @@ import { mountResizer } from "./components/resizer";
 import { login } from "./screens/login";
 import { fetchMe } from "./auth";
 import type { ArtifactRef } from "./state";
-import { beginRun, selectVariant, cancelRun, sendMessage, resetRun, reopenRun, lockView, addVariant, prototypePages, setProtoVariant, deployPages, goLive, rolloutSite } from "./driver/liveDriver";
+import { beginRun, selectVariant, cancelRun, sendMessage, resetRun, reopenRun, lockView, addVariant, prototypePages, setProtoVariant, deployPages, goLive, rolloutSite, auditSite } from "./driver/liveDriver";
 
 // Default (no param) = a real Opus-on-Bedrock run. Opt into others by param:
 //   ?mode=demo     — scripted offline demo (free, replays the knack sample)
@@ -127,6 +128,8 @@ const app: App = {
   deployPages: (slugs: string[]) => deployPages(slugs),
   goLive: () => goLive(),
   rollout: () => rolloutSite(),
+  goAudit: () => goView("audit"),
+  runAudit: (target) => auditSite(target),
 };
 
 const factories: Record<ScreenId, (s: RunState, a: App) => Screen | HTMLElement> = {
@@ -137,6 +140,7 @@ const factories: Record<ScreenId, (s: RunState, a: App) => Screen | HTMLElement>
   workspace,
   prototype,
   deploy,
+  audit,
 };
 
 const root = document.getElementById("root")!;

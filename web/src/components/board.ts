@@ -123,7 +123,14 @@ function phases(s: RunState): Phase[] {
         ? [{ cat: "ROLLOUT", kind: "generate", title: "Prototyping + deploying every page", detail: `${liveCount} of ${(s.pageCandidates.length || d.pages.length) + 1} live`, status: "run" }]
         : FUTURE.rollout.rows,
       flow: FUTURE.rollout.flow, doneSummary: "site live", meta: [] },
-    { id: "audit", label: "Audit", sub: "score the result", status: "future", rows: FUTURE.audit.rows, flow: FUTURE.audit.flow, doneSummary: "scored", meta: [] },
+    { id: "audit", label: "Audit", sub: s.audit ? (s.audit.target === "deployed" ? "the deployed site" : "the original site") : "score the result",
+      status: s.audit ? (s.audit.status === "done" ? "done" : s.audit.status === "running" ? "active" : "future") : "future",
+      rows: s.audit
+        ? [{ cat: "AUDIT", kind: "analyze", title: `Score ${s.audit.target === "deployed" ? "the deployed site" : "the original site"}`,
+            detail: s.audit.status === "done" ? `${s.audit.overall ?? "—"}/100` : s.audit.status === "failed" ? (s.audit.message ?? "failed") : "design · seo · ai",
+            status: s.audit.status === "done" ? "done" : s.audit.status === "running" ? "run" : "wait" }]
+        : FUTURE.audit.rows,
+      flow: FUTURE.audit.flow, doneSummary: s.audit?.overall != null ? `scored ${s.audit.overall}/100` : "scored", meta: [] },
   ];
 }
 

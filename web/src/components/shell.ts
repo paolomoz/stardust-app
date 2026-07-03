@@ -27,11 +27,15 @@ const PHASES: { id: string; label: string }[] = [
 export function topbar(state: RunState, actions: TopbarAction[]): string {
   const inRun = !!state.projectName;
   // Which phase the current view belongs to (highlighted rung).
-  const curPhase = state.screen === "prototype" ? "prototype" : state.screen === "deploy" ? (state.deploy?.rollout ? "rollout" : "deploy") : "uplift";
+  const curPhase = state.screen === "prototype" ? "prototype"
+    : state.screen === "deploy" ? (state.deploy?.rollout ? "rollout" : "deploy")
+    : state.screen === "audit" ? "audit"
+    : "uplift";
   // Rungs enable as their phase becomes reachable: uplift always (in a run);
-  // prototype/deploy once there are variants; rollout once something previewed.
+  // prototype/deploy once there are variants; rollout once something previewed;
+  // audit always (score the original any time; the deployed site once shipped).
   const enabled = (id: string) =>
-    id === "uplift" ||
+    id === "uplift" || id === "audit" ||
     ((id === "prototype" || id === "deploy") && state.variants.length > 0) ||
     (id === "rollout" && !!state.deploy?.pages.some((p) => p.status === "previewed" || p.status === "live"));
   const rung = (p: { id: string; label: string }) => {

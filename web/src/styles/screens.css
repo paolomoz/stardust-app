@@ -193,6 +193,14 @@
 .prow .psub a:hover { text-decoration: underline; }
 .dactions { flex: none; display: flex; flex-direction: column; gap: 7px; }
 .dactions .btn { width: 100%; justify-content: center; }
+
+/* Audit phase — overall score + dimension chips. */
+.auditbody { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.audit-overall { display: flex; align-items: baseline; gap: 6px; }
+.audit-overall .num { font: 700 40px/1 var(--text); color: var(--amber-deep); }
+.audit-overall .of { font: 600 15px/1 var(--text); color: var(--fg-faint); }
+.audit-overall .lbl { margin-left: 8px; font: 500 11px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-muted); }
+.dimchips { display: flex; flex-wrap: wrap; gap: 6px; }
 .protoprev .preview { height: 100%; }
 .protoblank { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 40px; text-align: center; background: radial-gradient(ellipse 70% 60% at 50% 38%, var(--surface) 0%, var(--canvas) 70%); }
 .protoblank .pb-star { font-size: 26px; color: var(--amber-deep); }

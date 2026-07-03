@@ -7,7 +7,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { getContainer } from "@cloudflare/containers";
 import type { Env } from "./index";
-import type { DeployPage, DeployState, Message, PageCandidate, RailState, ScreenId, TaskItem, TemplatePage, VariantCard, VariantId } from "../state";
+import type { AuditState, DeployPage, DeployState, Message, PageCandidate, RailState, ScreenId, TaskItem, TemplatePage, VariantCard, VariantId } from "../state";
 import type { ClientCommand, ServerEvent } from "../shared/protocol";
 import { callHaiku } from "./haiku";
 import {
@@ -133,6 +133,8 @@ export class RunSession extends DurableObject<Env> {
   // Deploy/rollout: the run's EDS push state (one code branch + one DA folder
   // per project). Persisted so it survives eviction and reopen.
   private deployState?: DeployState;
+  // Audit phase: the latest stardust:audit scorecard (original or deployed).
+  private auditState?: AuditState;
   // Demo (scripted) run: the whole ladder is simulated offline — action
   // commands (prototype/deploy/rollout) never spawn a container or touch DA.
   private demo = false;
@@ -193,6 +195,7 @@ export class RunSession extends DurableObject<Env> {
     if (this.realPages.length) server.send(JSON.stringify({ t: "panel.pages", pages: this.realPages }));
     if (this.realTemplates.length) server.send(JSON.stringify({ t: "panel.templates", protoVariant: this.protoVariant ?? "", templates: this.realTemplates }));
     if (this.deployState) server.send(JSON.stringify({ t: "panel.deploy", deploy: this.deployState }));
+    if (this.auditState) server.send(JSON.stringify({ t: "panel.audit", audit: this.auditState }));
     // Stored rail events bake in run-time swatches; if we know the real palette,
     // resend the last rail corrected (display-only, not persisted).
     if (this.realPalette?.length) {
@@ -831,11 +834,40 @@ export class RunSession extends DurableObject<Env> {
       return;
     }
 
-    // Post-run jobs (extra directions + the prototype/deploy phases) arrive after
-    // the run is done; a cold/evicted DO needs its result restored first so the
-    // variant list / pages / templates / deploy state aren't clobbered.
-    if (e.phase === "variant" || e.phase === "template" || e.phase === "deploy" || (e.phase === "extract" && e.event === "pages")) {
+    // Post-run jobs (extra directions + the prototype/deploy/audit phases)
+    // arrive after the run is done; a cold/evicted DO needs its result restored
+    // first so the variant list / pages / templates / deploy state aren't
+    // clobbered.
+    if (e.phase === "variant" || e.phase === "template" || e.phase === "deploy" || e.phase === "audit" || (e.phase === "extract" && e.event === "pages")) {
       await this.rehydrateResult(runId);
+    }
+
+    // Audit results (mode=audit job).
+    if (e.phase === "audit") {
+      const a = ev as { event?: string; report?: string; json?: string; overall?: number; scores?: Record<string, number>; message?: string };
+      if (!this.auditState) return;
+      if (a.event === "done") {
+        this.auditState = {
+          ...this.auditState,
+          status: "done",
+          overall: typeof a.overall === "number" ? a.overall : undefined,
+          scores: a.scores,
+          reportUrl: a.report ? this.art(a.report) : this.auditState.reportUrl,
+          jsonUrl: a.json ? this.art(a.json) : this.auditState.jsonUrl,
+        };
+        await this.persistResult();
+        await this.emit({ t: "panel.audit", audit: this.auditState });
+        await this.emit({ t: "message.append", message: { id: `au-${this.seq}`, role: "agent", lead: `✓ Audit done${typeof a.overall === "number" ? ` — **${a.overall}/100**` : ""}. Open the audit rung for the full scored report.` } });
+        await this.emit({ t: "busy", value: false });
+        await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", clock: "⏱ audit scored" }) });
+      } else if (a.event === "failed") {
+        this.auditState = { ...this.auditState, status: "failed", message: a.message };
+        await this.persistResult();
+        await this.emit({ t: "panel.audit", audit: this.auditState });
+        await this.emit({ t: "message.append", message: { id: `auerr-${this.seq}`, role: "agent", lead: `Audit failed${a.message ? ` — ${a.message}` : ""}.` } });
+        await this.emit({ t: "busy", value: false });
+      }
+      return;
     }
 
     // Deploy/rollout progress from the conversion job + the host publisher.
@@ -1188,6 +1220,7 @@ export class RunSession extends DurableObject<Env> {
         ? { pending: this.pendingBuilds, ok: this.buildsSucceeded, parallel: this.parallelUplift, staged: this.stagedBuilds }
         : (cur.builds ?? null),
       deploy: this.deployState ?? (cur as { deploy?: unknown }).deploy ?? null,
+      audit: this.auditState ?? (cur as { audit?: unknown }).audit ?? null,
       demo: this.demo || (cur as { demo?: boolean }).demo || false,
       iter: this.iterating
         ? { v: this.iterateVariant ?? null, f: this.iterateFile ?? null, start: this.iterateStart || 0 }
@@ -1215,6 +1248,7 @@ export class RunSession extends DurableObject<Env> {
         builds?: { pending?: string[]; ok?: number; parallel?: boolean; staged?: string[] } | null;
         iter?: { v?: string | null; f?: string | null; start?: number } | null;
         deploy?: DeployState | null;
+        audit?: AuditState | null;
         demo?: boolean;
       };
       this.uplift = !!r.uplift;
@@ -1242,6 +1276,7 @@ export class RunSession extends DurableObject<Env> {
         this.iterateStart = r.iter.start ?? 0;
       }
       if (r.deploy && !this.deployState) this.deployState = r.deploy;
+      if (r.audit && !this.auditState) this.auditState = r.audit;
       if (r.demo) this.demo = true;
     } catch {
       /* ignore malformed */
@@ -1388,6 +1423,62 @@ export class RunSession extends DurableObject<Env> {
     if (cmd.t === "deploy") return this.demo ? this.demoDeploy(cmd.slugs) : this.runDeploy(cmd.slugs);
     if (cmd.t === "golive") return this.demo ? this.demoGoLive() : this.runGoLive();
     if (cmd.t === "rollout") return this.demo ? this.demoRollout() : this.runRollout();
+    if (cmd.t === "audit") return this.demo ? this.demoAudit(cmd.target) : this.runAudit(cmd.target);
+  }
+
+  /** Run stardust:audit on the original site or the deployed preview. */
+  private async runAudit(target: "original" | "deployed"): Promise<void> {
+    if (this.auditState?.status === "running") {
+      await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "An audit is already running." } });
+      return;
+    }
+    const creds = await this.jobCreds();
+    if (!creds) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "I can't audit on this run — its runtime token is missing." } }); return; }
+    let url = "";
+    if (target === "deployed") {
+      const d = this.deployState;
+      const home = d?.pages.find((p) => p.slug === "home");
+      url = home?.liveUrl ?? home?.previewUrl ?? "";
+      if (!url) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Deploy to preview first — then I can audit the deployed site." } }); return; }
+    } else {
+      const row = await this.env.DB.prepare("SELECT url FROM runs WHERE id = ?").bind(this.runId).first<{ url: string }>();
+      url = row?.url ?? "";
+      if (!url) return;
+    }
+    this.auditState = { target, url, status: "running" };
+    await this.persistResult();
+    await this.emit({ t: "panel.audit", audit: this.auditState });
+    await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Auditing **${target === "deployed" ? "the deployed site" : deriveProject(url)}** — design, SEO, and AI-visibility, scored.` } });
+    await this.emit({ t: "busy", value: true });
+    await this.emit({ t: "eta", seconds: 10 * 60, startedAt: Date.now() });
+    await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", busy: true, clock: "⏱ auditing" }) });
+    try {
+      await this.triggerRuntime({ runId: this.runId, token: creds.token, backend: creds.backend, mode: "audit", jobId: "audit", url });
+    } catch (err) {
+      this.auditState = { ...this.auditState, status: "failed", message: (err as Error).message };
+      await this.persistResult();
+      await this.emit({ t: "panel.audit", audit: this.auditState });
+      await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Couldn't start the audit (${(err as Error).message}).` } });
+      await this.emit({ t: "busy", value: false });
+    }
+  }
+
+  /** Demo audit — offline, canned scorecard on the bundled report artifact. */
+  private async demoAudit(target: "original" | "deployed"): Promise<void> {
+    this.auditState = { target, url: "https://www.knack.com/", status: "running" };
+    await this.emit({ t: "panel.audit", audit: this.auditState });
+    await this.emit({ t: "busy", value: true });
+    await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Auditing **knack.com** — design, SEO, and AI-visibility. (demo)` } });
+    await this.demoWait(1600);
+    this.auditState = {
+      ...this.auditState, status: "done", overall: 72,
+      scores: { design: 68, hierarchy: 64, accessibility: 78, performance: 81, seo: 74, "llm-visibility": 61, brand: 79 },
+      reportUrl: `${ART}/review/brand-review.html`,
+    };
+    await this.persistResult();
+    await this.emit({ t: "panel.audit", audit: this.auditState });
+    await this.emit({ t: "message.append", message: { id: `au-${this.seq}`, role: "agent", lead: "✓ Audit done — **72/100**. Open the audit rung for the scored report. (demo)" } });
+    await this.emit({ t: "busy", value: false });
   }
 
   private async onSend(screen: ScreenId, text: string): Promise<void> {

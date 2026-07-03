@@ -102,6 +102,9 @@ function apply(ev: ServerEvent): void {
     case "panel.deploy":
       store.set({ deploy: ev.deploy });
       break;
+    case "panel.audit":
+      store.set({ audit: ev.audit });
+      break;
     case "rail":
       store.set({ rail: ev.rail });
       break;
@@ -250,6 +253,7 @@ export const setProtoVariant = (variant: VariantId) => command({ t: "setProtoVar
 export const deployPages = (slugs: string[]) => command({ t: "deploy", slugs });
 export const goLive = () => command({ t: "golive" });
 export const rolloutSite = () => command({ t: "rollout" });
+export const auditSite = (target: "original" | "deployed") => command({ t: "audit", target });
 
 export function resetRun(): void {
   closedByUs = true;

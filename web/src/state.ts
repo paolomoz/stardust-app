@@ -4,7 +4,7 @@
    Worker WebSocket. Keep this transport-agnostic.
    =========================================================================== */
 
-export type ScreenId = "landing" | "working" | "brand" | "variants" | "workspace" | "prototype" | "deploy";
+export type ScreenId = "landing" | "working" | "brand" | "variants" | "workspace" | "prototype" | "deploy" | "audit";
 export type Phase = "prototype" | "deploy";
 export type TaskStatus = "done" | "run" | "wait";
 // Variant ids: the first three are A/B/C; extra directions generated from chat
@@ -110,6 +110,19 @@ export interface DeployState {
   pages: DeployPage[];
 }
 
+/** A stardust:audit result — design + SEO + LLM-visibility scorecard of a URL
+ *  (the original site, or the deployed preview for the before/after story). */
+export interface AuditState {
+  target: "original" | "deployed";
+  url: string;
+  status: "running" | "done" | "failed";
+  overall?: number;                  // 0–100
+  scores?: Record<string, number>;   // seven dimensions
+  reportUrl?: string;                // craft-rendered report.html (iframe)
+  jsonUrl?: string;
+  message?: string;                  // failure reason
+}
+
 export interface RailState {
   swatches: string[];
   signature?: string;
@@ -150,6 +163,7 @@ export interface RunState {
   protoVariant?: string;           // prototype phase: the pinned direction (variant id)
   protoActive?: string;            // prototype phase: the page slug shown in the preview
   deploy?: DeployState;            // deploy/rollout phase: EDS push state
+  audit?: AuditState;              // audit phase: latest scorecard
 }
 
 type Listener = (s: RunState) => void;
@@ -185,6 +199,7 @@ function initial(): RunState {
     protoVariant: undefined,
     protoActive: undefined,
     deploy: undefined,
+    audit: undefined,
   };
 }
 

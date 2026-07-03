@@ -20,6 +20,10 @@
                  bundle (_eds/: blocks + content fragments + manifest) per
                  eds-deploy-guide.md. A deterministic host-side publisher
                  (eds-publish.mjs, driven by the runner) does the transport.
+     verify    — the deploy skill's Step 10 against the live preview (diff
+                 probes + computed-layout gate).
+     audit     — stardust:audit of a URL (the original site or the deployed
+                 preview): scored design/SEO/LLM-visibility report.
 
    Env:
      RUN_ID, INGEST_BASE, INGEST_TOKEN   (from the Durable Object)
@@ -334,6 +338,19 @@ const verifyTask =
   `5. reply_to_user a short fidelity summary. Finish with emit_milestone(phase="deploy", event="verified", data={"ok":true|false}).\n` +
   `Judge per the diff skill's pass bar (no/justified visual flags AND zero structural 🔴). Network access to ${previewHost} is available.`;
 
+const auditTask =
+  `Audit ${url} — run stardust:audit in full, hands-off: read /workspace/skills/stardust/audit/SKILL.md and follow it ` +
+  `(all phases; use the skill's degradation ladder — no refero MCP and no marketing-skills plugin here, so their built-in ` +
+  `fallbacks apply; skip PageSpeed gracefully if unreachable; Playwright is preinstalled). If a recent extraction exists under ` +
+  `stardust/current (restored workspace), reuse it per the skill's freshness rule instead of re-crawling.\n` +
+  `When the audit completes:\n` +
+  `1. Copy stardust/audit/<domain-slug>/audit.json and report.html to ${outputsDir}/audit/ (keep file names; also copy any assets report.html references, keeping relative paths).\n` +
+  `2. upload_artifact audit/report.html, audit/audit.json, and each copied asset.\n` +
+  `3. reply_to_user the scorecard (overall + seven dimensions) and the top P1 findings, in clean Markdown.\n` +
+  `4. Finish with emit_milestone(phase="audit", event="done", data={"report":"audit/report.html","json":"audit/audit.json",` +
+  `"overall":<0-100>,"scores":{"<dimension>":<score>, …}}) — scores straight from audit.json.\n` +
+  `If the audit cannot complete (extract fails entirely), emit_milestone(phase="audit", event="failed", data={"message":"<reason>"}).`;
+
 // ---- terminal + restore per mode -------------------------------------------
 
 let task;
@@ -407,6 +424,10 @@ if (mode === "iterate") {
   task = verifyTask;
   doneHint = `Finish now: emit_milestone(phase="deploy", event="verify_page", …) for any page not yet reported, then emit_milestone(phase="deploy", event="verified", data={"ok":…}).`;
   await Promise.all(deployPages.map((p) => ingest.download(p.file, `${outputsDir}/${p.file}`).catch(() => {})));
+} else if (mode === "audit") {
+  task = auditTask;
+  doneHint = `Finish now: upload audit/report.html + audit/audit.json and call emit_milestone(phase="audit", event="done", data={…scores…}) — or event="failed" with the reason.`;
+  await restoreBundle(); // best-effort: lets the skill reuse a fresh extraction
 } else if (stage === "direct") {
   task = directTask;
   doneHint = `Finish now: emit_milestone(phase="direct", event="variants_ready", data={"sharedFixes":[…],"variants":[…]}) with the three directions.`;
@@ -423,6 +444,7 @@ const terminal = (name, args) => {
   if (mode === "build") return p === "prototype" && e === "variant_done";
   if (mode === "deploy") return p === "deploy" && e === "bundle_ready";
   if (mode === "verify") return p === "deploy" && e === "verified";
+  if (mode === "audit") return p === "audit" && (e === "done" || e === "failed");
   if (stage === "direct") return p === "direct" && e === "variants_ready";
   return p === "done";
 };
@@ -442,6 +464,7 @@ try {
     : mode === "build" ? `${provider.name} ${provider.model} — crafting variant ${variantId}`
     : mode === "deploy" ? `${provider.name} ${provider.model} — converting ${deployPages.length} page(s) to Edge Delivery`
     : mode === "verify" ? `${provider.name} ${provider.model} — verifying ${deployPages.length} deployed page(s) against the prototypes`
+    : mode === "audit" ? `${provider.name} ${provider.model} — auditing ${url}`
     : `${provider.name} ${provider.model} — starting${url ? ` uplift of ${url}` : ""}.` });
 
   const { usage, done, steps } = await runLoop({
@@ -473,6 +496,7 @@ try {
       : mode === "build" ? { phase: "prototype", event: "variant_failed", variant: variantId, message: "the variant wasn't built" }
       : mode === "deploy" ? { phase: "deploy", event: "failed", message: "the conversion didn't finish" }
       : mode === "verify" ? { phase: "deploy", event: "verified", ok: false, message: "the verify didn't finish" }
+      : mode === "audit" ? { phase: "audit", event: "failed", message: "the audit didn't finish" }
       : stage === "direct" ? { phase: "failed", message: "the directions weren't composed" }
       : { phase: "done" };
     await ingest.event(ev).catch(() => {});
@@ -514,6 +538,7 @@ try {
       : mode === "build" ? { phase: "prototype", event: "variant_failed", variant: variantId, message }
       : mode === "deploy" ? { phase: "deploy", event: "failed", message }
       : mode === "verify" ? { phase: "deploy", event: "verified", ok: false, message }
+      : mode === "audit" ? { phase: "audit", event: "failed", message }
       : { phase: "failed", message };
     await ingest.event(ev);
     reported = true;

@@ -76,6 +76,7 @@ function failureEvent(job, message) {
   if (job.mode === "build") return { phase: "prototype", event: "variant_failed", variant: job.variantId, message };
   if (job.mode === "deploy") return { phase: "deploy", event: "failed", message };
   if (job.mode === "verify") return { phase: "deploy", event: "verified", ok: false, message };
+  if (job.mode === "audit") return { phase: "audit", event: "failed", message };
   return { phase: "failed", message };
 }
 

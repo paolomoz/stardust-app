@@ -67,6 +67,7 @@ function failureEvent(mode, variantId, slug, message) {
   if (mode === "build") return { phase: "prototype", event: "variant_failed", variant: variantId, message };
   if (mode === "deploy") return { phase: "deploy", event: "failed", message };
   if (mode === "verify") return { phase: "deploy", event: "verified", ok: false, message };
+  if (mode === "audit") return { phase: "audit", event: "failed", message };
   return { phase: "failed", message };
 }
 

@@ -34,6 +34,7 @@ const SUGGESTIONS: Record<ScreenId, Suggestion[]> = {
   deploy: [
     { label: "Prototype another page", prompt: "prototype the about page" },
   ],
+  audit: [],
 };
 
 function suggestionsFor(s: RunState): Suggestion[] {
