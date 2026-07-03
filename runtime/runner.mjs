@@ -66,6 +66,7 @@ function failureEvent(mode, variantId, slug, message) {
   if (mode === "template") return { phase: "template", event: "page_failed", slug: slug || "", message };
   if (mode === "build") return { phase: "prototype", event: "variant_failed", variant: variantId, message };
   if (mode === "deploy") return { phase: "deploy", event: "failed", message };
+  if (mode === "verify") return { phase: "deploy", event: "verified", ok: false, message };
   return { phase: "failed", message };
 }
 
@@ -136,13 +137,14 @@ function launchContainer({ runId, url, token, backend, mode, stage, jobId, instr
   if (mode === "variant") { modeEnv.INSTRUCTION = instruction || ""; modeEnv.VARIANT_NAME = variantName || "D"; modeEnv.VARIANT_FILE = variantFile || "home-C-cinematic.html"; }
   if (mode === "template") { modeEnv.VARIANT_ID = variantId || "C"; modeEnv.VARIANT_FILE = variantFile || ""; modeEnv.INSTRUCTION = instruction || ""; modeEnv.SLUG = slug || ""; modeEnv.PAGE_URL = pageUrl || ""; modeEnv.PAGE_TITLE = pageTitle || ""; }
   if (mode === "build") { modeEnv.VARIANT_ID = variantId || "A"; modeEnv.VARIANT_FILE = variantFile || ""; }
-  if (mode === "deploy") {
+  if (mode === "deploy" || mode === "verify") {
     modeEnv.PROJECT = project || "";
     if (org) modeEnv.DA_ORG = org;
     if (site) modeEnv.DA_SITE = site;
     if (branch) modeEnv.BRANCH = branch;
     if (previewHost) modeEnv.PREVIEW_HOST = previewHost;
     modeEnv.PAGES = JSON.stringify(pages || []);
+    if (mode === "deploy" && variantId) modeEnv.VARIANT_ID = variantId;
   }
   if ((mode === "uplift" || !mode) && stage) modeEnv.UPLIFT_STAGE = stage;
 

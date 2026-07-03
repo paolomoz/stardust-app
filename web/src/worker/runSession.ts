@@ -840,7 +840,7 @@ export class RunSession extends DurableObject<Env> {
 
     // Deploy/rollout progress from the conversion job + the host publisher.
     if (e.phase === "deploy") {
-      await this.onDeployEvent(e as { event?: string; slug?: string; url?: string; message?: string; pages?: string[]; live?: boolean });
+      await this.onDeployEvent(e as { event?: string; slug?: string; url?: string; message?: string; pages?: string[]; live?: boolean; ok?: boolean; flags?: string });
       return;
     }
 
@@ -1761,6 +1761,34 @@ export class RunSession extends DurableObject<Env> {
     await this.runDeploy(slugs, { fromRollout: true });
   }
 
+  /** Post-preview fidelity verify: the deploy skill's Step 10 (stardust:diff)
+   *  + computed-layout gate, run in a sandbox job against the live preview. */
+  private async runVerify(): Promise<void> {
+    const d = this.deployState;
+    if (!d) return;
+    const creds = await this.jobCreds();
+    if (!creds) return;
+    const homeCard = this.realVariants?.variants.find((v) => v.id === d.variant);
+    const pages = d.pages
+      .filter((p) => p.status === "previewed" || p.status === "live")
+      .map((p) => ({
+        slug: p.slug,
+        title: p.title,
+        file: p.slug === "home" ? (homeCard ? RunSession.fileOfSrc(homeCard.src) : "home-C-cinematic.html") : `${p.slug}-proposed.html`,
+        daPath: `${d.project}/${p.slug === "home" ? "index" : p.slug}`,
+      }));
+    if (!pages.length) return;
+    await this.emit({ t: "status", text: "verifying fidelity vs the prototypes" });
+    try {
+      await this.triggerRuntime({
+        runId: this.runId, token: creds.token, backend: creds.backend, mode: "verify", jobId: "verify",
+        project: d.project, org: d.org, site: d.site, branch: d.branch, previewHost: d.previewHost, pages,
+      });
+    } catch (e) {
+      await this.emit({ t: "message.append", message: { id: `dverr-${this.seq}`, role: "agent", lead: `Couldn't start the fidelity verify (${(e as Error).message}) — the preview is up regardless.` } });
+    }
+  }
+
   /** Ask the host runner to run the deterministic EDS publisher. */
   private async triggerPublish(live: boolean): Promise<void> {
     const creds = await this.jobCreds();
@@ -1774,8 +1802,9 @@ export class RunSession extends DurableObject<Env> {
     }
   }
 
-  /** deploy.* progress from the conversion job and the host publisher. */
-  private async onDeployEvent(e: { event?: string; slug?: string; url?: string; message?: string; pages?: string[]; live?: boolean }): Promise<void> {
+  /** deploy.* progress from the conversion job, the host publisher, and the
+   *  fidelity-verify job. */
+  private async onDeployEvent(e: { event?: string; slug?: string; url?: string; message?: string; pages?: string[]; live?: boolean; ok?: boolean; flags?: string }): Promise<void> {
     const d = this.deployState;
     if (!d) return;
     if (e.event === "page_converted") {
@@ -1814,8 +1843,28 @@ export class RunSession extends DurableObject<Env> {
       const liveHome = home.replace(".aem.page", ".aem.live");
       await this.emit({ t: "message.append", message: { id: `dp-${this.seq}`, role: "agent", md: e.live
         ? `✓ **Live** — the site is published.\n\n- Preview: ${home}\n- Live: ${liveHome}`
-        : `✓ **Deployed to preview** — ${home}\n\nSay "go live" (or hit the button) to publish.` } });
+        : `✓ **Deployed to preview** — ${home}\n\nRunning the fidelity verify (diff vs the prototypes)… Say "go live" (or hit the button) to publish.` } });
       await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", clock: e.live ? "⏱ live" : "⏱ previewed" }) });
+      // Step 10: fidelity verify against the real preview (diff probes +
+      // computed-layout gate, in the sandbox). Preview-time only — go-live
+      // re-publishes already-verified pages.
+      if (!e.live) void this.runVerify().catch(() => {});
+      return;
+    }
+    if (e.event === "verify_page") {
+      const cur = d.pages.find((p) => p.slug === e.slug);
+      if (cur) this.setDeployPage(e.slug, { verified: e.ok !== false, message: e.flags || cur.message });
+      await this.emitDeploy();
+      return;
+    }
+    if (e.event === "verified") {
+      const flagged = d.pages.filter((p) => p.verified === false).length;
+      await this.emit({ t: "message.append", message: { id: `dv-${this.seq}`, role: "agent", lead: e.ok === false && e.message
+        ? `⚠ Fidelity verify didn't complete — ${e.message}.`
+        : flagged
+          ? `Fidelity verify done — **${flagged} page${flagged > 1 ? "s" : ""} flagged** (see the ledger); the rest match the prototypes.`
+          : `✓ Fidelity verified — the deployed pages match their prototypes (diff + computed-layout gates).` } });
+      await this.emitDeploy();
       return;
     }
     if (e.event === "failed") {

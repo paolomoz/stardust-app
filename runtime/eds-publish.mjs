@@ -19,10 +19,21 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { fetchRetry } from "./fetch-retry.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// AuthorKit is the decided deploy runtime (prior plugin reviews: it converts
+// better than vanilla boilerplate; the deploy skill is validated against it).
+// PINNED ref — never a tracking branch (upstream runtime drift once bricked a
+// repo; the bootstrap script itself refuses unpinned main).
+// aemsites/author-kit main as of 2026-06-08.
+const AUTHORKIT_REF = process.env.AUTHORKIT_REF || "b673ff3d6823709b5161305659a8236872c5eb02";
+// The bootstrap script ships with the baked deploy skill; build.sh stages it
+// under sandbox/skills/, which is host-readable next to this module.
+const BOOTSTRAP_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "sandbox", "skills", "stardust", "deploy", "scripts", "bootstrap-authorkit.mjs");
 
 /** Encode non-ASCII to numeric entities — DA strips <head>/charset and mangles
  *  raw multibyte UTF-8 (→ U+FFFD); entities survive the round-trip. */
@@ -92,6 +103,16 @@ export async function publish(job, { log = console.log } = {}) {
     const remoteBranch = git(repoDir, ["ls-remote", "--heads", "origin", branch], { env: gitEnv }).trim();
     git(repoDir, ["checkout", "-B", branch, remoteBranch ? `origin/${branch}` : "origin/main"], { env: gitEnv });
 
+    // AuthorKit runtime port (branch-scoped; main stays vanilla). Idempotent —
+    // the script verifies its two mandatory edits and hard-fails if they can't
+    // be applied, so a drifted source can't silently ship a broken runtime.
+    if (!existsSync(join(repoDir, "scripts", "ak.js"))) {
+      if (!existsSync(BOOTSTRAP_SCRIPT)) throw new Error(`bootstrap-authorkit.mjs not staged at ${BOOTSTRAP_SCRIPT} — run sandbox/build.sh`);
+      log(`[eds] bootstrapping AuthorKit runtime on ${branch} (ref ${AUTHORKIT_REF.slice(0, 8)})`);
+      execFileSync("node", [BOOTSTRAP_SCRIPT, "--target", repoDir, "--ref", AUTHORKIT_REF], { stdio: ["ignore", "pipe", "pipe"] });
+      await report("code_pushed", { branch, detail: "authorkit bootstrapped" });
+    }
+
     const codeDir = join(edsDir, "code");
     if (existsSync(codeDir)) cpSync(codeDir, repoDir, { recursive: true });
     // Deterministic Code-Sync marker: poll for this exact string on the branch host.
@@ -158,6 +179,9 @@ export async function publish(job, { log = console.log } = {}) {
       const pv = await fetchRetry(`${admin}/preview/${org}/${site}/${branch}/${f.daPath}`, { method: "POST", headers: auth }, { label: `preview ${f.daPath}` });
       if (!pv.ok) { failures.push(`${f.daPath}: preview ${pv.status}`); continue; }
       if (!f.slug) continue; // nav/footer fragments need no verify/report
+      // Atomic delivery asserts (the deploy skill's per-page contract): body
+      // intact, zero about:error, exactly one <h1>, no root-relative /img/ srcs
+      // (they ingest as about:error on the next preview).
       const plain = await (await fetch(`${previewHost}/${f.daPath}.plain.html`, { headers: { "cache-control": "no-cache" } })).text();
       const errors = (plain.match(/about:error/g) ?? []).length;
       if (errors) {
@@ -165,6 +189,9 @@ export async function publish(job, { log = console.log } = {}) {
         await sleep(4000);
         await fetchRetry(`${admin}/preview/${org}/${site}/${branch}/${f.daPath}`, { method: "POST", headers: auth }, { label: `re-preview ${f.daPath}` });
       }
+      const h1s = (plain.match(/<h1[\s>]/g) ?? []).length;
+      if (h1s !== 1) log(`[eds] WARN ${f.daPath}: ${h1s} <h1> elements (contract wants exactly 1)`);
+      if (/src="\/img\//.test(plain)) log(`[eds] WARN ${f.daPath}: root-relative /img/ src in delivered content`);
       const url = `${previewHost}/${f.daPath.replace(/\/index$/, "/")}`;
       log(`[eds] previewed ${url}${errors ? ` (repaired ${errors} image ingests)` : ""}`);
       await report("page_previewed", { slug: f.slug, url });

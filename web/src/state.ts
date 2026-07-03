@@ -92,7 +92,8 @@ export interface DeployPage {
   status: "converting" | "converted" | "pushing" | "previewed" | "live" | "failed";
   previewUrl?: string;
   liveUrl?: string;
-  message?: string;      // failure reason
+  verified?: boolean;    // fidelity verify (diff + computed-layout) outcome
+  message?: string;      // failure reason / diff flags
 }
 
 /** The run's EDS deployment — one project = one code branch + one DA folder. */

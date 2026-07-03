@@ -43,8 +43,11 @@ function ledger(s: RunState): string {
   const rows = deployRows(s).map((r) => {
     const st = r.page?.status;
     const url = r.page?.liveUrl ?? r.page?.previewUrl;
+    const fidelity = r.page?.verified === true ? " · ✓ fidelity"
+      : r.page?.verified === false ? ` · ⚠ ${esc(r.page?.message || "diff flags")}`
+      : "";
     const sub = st
-      ? (st === "failed" ? esc(r.page?.message || "failed") : esc(STATUS_LABEL[st]))
+      ? (st === "failed" ? esc(r.page?.message || "failed") : esc(STATUS_LABEL[st]) + fidelity)
       : r.ready ? "ready to deploy" : "not prototyped yet";
     const check = r.ready && (!st || st === "failed")
       ? `<input type="checkbox" class="dcheck" value="${esc(r.slug)}" checked />`

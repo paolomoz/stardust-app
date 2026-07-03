@@ -292,21 +292,47 @@ const templateTask =
   `Put everything the director should read in reply_to_user — other output is dim 'thinking'.`;
 
 const deployList = deployPages.map((p) => `- ${p.slug}: "${p.title || p.slug}" ← ${outputsDir}/${p.file}`).join("\n");
+// The AuthorKit runtime contract the conversion targets. The EDS repo is NOT in
+// this sandbox — the host publisher bootstraps AuthorKit on the project branch
+// (pinned ref) before pushing — so the contract is fixed by policy, not probed.
+const AK_CONTRACT = `{"runtime":"authorkit","blockWrapperClass":"none","buttonClasses":".btn / .btn-primary / .btn-group","fragmentScriptPolicy":"inert-innerHTML","emptySectionCollapse":true}`;
 const deployTask =
-  `You are converting finished stardust prototypes into an Edge Delivery Services (AEM EDS) site. ` +
-  `FIRST read /workspace/runtime/eds-deploy-guide.md and follow it exactly — layout, block rule, the ENCODE contract, manifest schema.\n` +
+  `You are converting finished stardust prototypes into an Edge Delivery Services (AEM EDS) site by RUNNING the baked deploy skill: ` +
+  `read /workspace/skills/stardust/deploy/SKILL.md and follow its conversion steps (1–9) faithfully.\n` +
   `Project: ${project} · org ${daOrg} · site ${daSite} · branch ${branch} · preview host ${previewHost}.\n` +
-  `Pages to convert (prototype files already in ${outputsDir}):\n${deployList}\n` +
-  `If ${outputsDir}/_eds/manifest.json already exists this is an INCREMENTAL deploy — merge per the guide (reuse existing blocks; read their CSS under _eds/code/blocks/ first).\n` +
-  `Steps:\n` +
-  `1. Convert each page per the guide → write ${outputsDir}/_eds/content/<slug>.html (home = index.html). ` +
-  `Emit emit_milestone(phase="deploy", event="page_converted", data={"slug":"<slug>"}) the moment each fragment is written.\n` +
-  `2. Write the code per the guide under ${outputsDir}/_eds/code/ (blocks, styles/styles.css, styles/fonts.css, fonts, img/${project}/ — copy the image binaries with run_bash from the prototype assets in ${outputsDir}/assets/).\n` +
-  `3. Write the shared nav + footer fragments (_eds/content/nav.html, _eds/content/footer.html).\n` +
-  `4. Write ${outputsDir}/_eds/manifest.json exactly per the guide's schema.\n` +
-  `5. upload_artifact EVERY file under _eds/ (manifest, every content fragment, every code file, every image binary).\n` +
-  `6. reply_to_user a short summary — blocks created, pages converted, compromises.\n` +
-  `7. Finish with emit_milestone(phase="deploy", event="bundle_ready", data={"pages":${JSON.stringify(deployPages.map((p) => p.slug))}}).`;
+  `Pages to convert (finished prototypes already in ${outputsDir}):\n${deployList}\n` +
+  `Sandbox constraints (this changes HOW you execute the skill, never its quality bar):\n` +
+  `- The EDS repo is NOT present here and a deterministic host publisher does ALL transport. SKIP the repo probe, git, DA writes, ` +
+  `preview/live, the aem-cli local harness, and Step 10 (a separate verify job runs the diff against the real preview). ` +
+  `Target runtime contract (treat as stardust/runtime-contract.json): ${AK_CONTRACT} — so block CSS is scoped \`.name\` (NEVER \`.name.block\`), ` +
+  `buttons are a.btn / .btn-primary inside p.btn-group, header/footer are STATIC FRAGMENTS per the skill's Step 6.\n` +
+  `- Before starting: restore inputs — the workspace under /workspace/stardust has the brand context; copy the prototype pages from ${outputsDir} ` +
+  `into stardust/prototypes/ so the skill finds them where it expects.\n` +
+  `- Write EVERYTHING into ${outputsDir}/_eds/ (the publisher's contract — schema in /workspace/runtime/eds-deploy-guide.md):\n` +
+  `  content/  — DA body fragments (home = index.html) + the Step-6 nav/footer fragments under content/fragments/;\n` +
+  `  code/     — blocks/, styles/, fonts/, icons/, img/${project}/ (copy image binaries from ${outputsDir}/assets/), AND any runtime file the ` +
+  `skill has you adjust — e.g. scripts/postlcp.js so fragments load from /${project}/fragments/ (all content for this project lives under the /${project}/ prefix);\n` +
+  `  manifest.json — per the guide's schema (daPath prefix /${project}/; images by absolute code-bus URL ${previewHost}/img/${project}/…).\n` +
+  `- If ${outputsDir}/_eds/manifest.json already exists this is an INCREMENTAL deploy: merge, reuse existing block names (read their CSS first), only add new blocks when none fits.\n` +
+  `- keyFacts gate: if DESIGN.json extensions.metadata.keyFacts is absent, note it and continue (the skill's own rule).\n` +
+  `Emit emit_milestone(phase="deploy", event="page_converted", data={"slug":"<slug>"}) the moment each page's fragment is written. ` +
+  `upload_artifact EVERY file under _eds/. reply_to_user a short summary (blocks created, compromises). ` +
+  `Finish with emit_milestone(phase="deploy", event="bundle_ready", data={"pages":${JSON.stringify(deployPages.map((p) => p.slug))}}).`;
+
+// Post-preview fidelity verify: the deploy skill's Step 10 (stardust:diff) +
+// the computed-layout gate, run against the LIVE preview from the sandbox.
+const verifyList = deployPages.map((p) => `- ${p.slug}: prototype ${outputsDir}/${p.file} ⇄ ${previewHost}/${p.daPath ?? `${project}/${p.slug === "home" ? "index" : p.slug}`}`.replace("/index", "/")).join("\n");
+const verifyTask =
+  `You are verifying a deployed Edge Delivery preview against its source prototypes — the deploy skill's Step 10 plus the computed-layout gate. ` +
+  `Read /workspace/skills/stardust/diff/SKILL.md for the exact probe invocations (profile eds). Pages:\n${verifyList}\n` +
+  `1. Serve the prototypes locally: run_bash \`cd ${outputsDir} && (python3 -m http.server 8791 >/dev/null 2>&1 &) && sleep 1\`.\n` +
+  `2. For EACH page run BOTH probes — node /workspace/skills/stardust/diff/scripts/visual-diff.mjs and content-diff.mjs — with ` +
+  `PROTO = http://localhost:8791/<prototype file> and BUILD = the preview URL above.\n` +
+  `3. Also run the computed-layout check per /workspace/skills/stardust/deploy/SKILL.md (headless Playwright on the BUILD URL: every grid/flex ` +
+  `block computes display:grid/flex, main .section count > 0, blocks decorated, zero pageerror, zero broken images).\n` +
+  `4. After each page: emit_milestone(phase="deploy", event="verify_page", data={"slug":"<slug>","ok":true|false,"flags":"<short 🔴/🟡 summary or empty>"}).\n` +
+  `5. reply_to_user a short fidelity summary. Finish with emit_milestone(phase="deploy", event="verified", data={"ok":true|false}).\n` +
+  `Judge per the diff skill's pass bar (no/justified visual flags AND zero structural 🔴). Network access to ${previewHost} is available.`;
 
 // ---- terminal + restore per mode -------------------------------------------
 
@@ -358,6 +384,10 @@ if (mode === "iterate") {
 } else if (mode === "deploy") {
   task = deployTask;
   doneHint = `Finish now: upload every _eds/ file and call emit_milestone(phase="deploy", event="bundle_ready", data={"pages":[…]}).`;
+  // The native deploy skill wants the project context (brand tokens, DESIGN,
+  // captures) — restore the workspace bundle and pin the shipped variant.
+  await restoreBundle();
+  if (env.VARIANT_ID) pinVariant(env.VARIANT_ID);
   // Best-effort restore of inputs (locally the outputs mount already has them):
   // the page prototypes, plus the existing _eds manifest + block CSS for an
   // incremental deploy.
@@ -373,6 +403,10 @@ if (mode === "iterate") {
     }
     await ingest.download("_eds/code/styles/styles.css", `${outputsDir}/_eds/code/styles/styles.css`).catch(() => {});
   }
+} else if (mode === "verify") {
+  task = verifyTask;
+  doneHint = `Finish now: emit_milestone(phase="deploy", event="verify_page", …) for any page not yet reported, then emit_milestone(phase="deploy", event="verified", data={"ok":…}).`;
+  await Promise.all(deployPages.map((p) => ingest.download(p.file, `${outputsDir}/${p.file}`).catch(() => {})));
 } else if (stage === "direct") {
   task = directTask;
   doneHint = `Finish now: emit_milestone(phase="direct", event="variants_ready", data={"sharedFixes":[…],"variants":[…]}) with the three directions.`;
@@ -388,6 +422,7 @@ const terminal = (name, args) => {
   if (mode === "template") return p === "template" && (e === "page_done" || e === "answer");
   if (mode === "build") return p === "prototype" && e === "variant_done";
   if (mode === "deploy") return p === "deploy" && e === "bundle_ready";
+  if (mode === "verify") return p === "deploy" && e === "verified";
   if (stage === "direct") return p === "direct" && e === "variants_ready";
   return p === "done";
 };
@@ -406,6 +441,7 @@ try {
     : mode === "template" ? `${provider.name} ${provider.model} — prototyping ${pageTitle || slug || "a page"} in variant ${variantId}`
     : mode === "build" ? `${provider.name} ${provider.model} — crafting variant ${variantId}`
     : mode === "deploy" ? `${provider.name} ${provider.model} — converting ${deployPages.length} page(s) to Edge Delivery`
+    : mode === "verify" ? `${provider.name} ${provider.model} — verifying ${deployPages.length} deployed page(s) against the prototypes`
     : `${provider.name} ${provider.model} — starting${url ? ` uplift of ${url}` : ""}.` });
 
   const { usage, done, steps } = await runLoop({
@@ -436,6 +472,7 @@ try {
       : mode === "template" ? { phase: "template", event: "page_failed", slug: slug || tSlug, message: "the page wasn't rendered" }
       : mode === "build" ? { phase: "prototype", event: "variant_failed", variant: variantId, message: "the variant wasn't built" }
       : mode === "deploy" ? { phase: "deploy", event: "failed", message: "the conversion didn't finish" }
+      : mode === "verify" ? { phase: "deploy", event: "verified", ok: false, message: "the verify didn't finish" }
       : stage === "direct" ? { phase: "failed", message: "the directions weren't composed" }
       : { phase: "done" };
     await ingest.event(ev).catch(() => {});
@@ -476,6 +513,7 @@ try {
       : mode === "template" ? { phase: "template", event: "page_failed", slug: slug || tSlug, message }
       : mode === "build" ? { phase: "prototype", event: "variant_failed", variant: variantId, message }
       : mode === "deploy" ? { phase: "deploy", event: "failed", message }
+      : mode === "verify" ? { phase: "deploy", event: "verified", ok: false, message }
       : { phase: "failed", message };
     await ingest.event(ev);
     reported = true;
