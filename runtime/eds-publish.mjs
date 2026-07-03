@@ -160,7 +160,11 @@ export async function publish(job, { log = console.log } = {}) {
     }
 
     // ---- 3. content → DA -----------------------------------------------------
-    const fragments = [...(manifest.fragments ?? []), ...manifest.pages];
+    // Normalize daPaths defensively: no leading slashes (a "/<project>/…" path
+    // becomes source/org/site//… → DA 400), no trailing .html.
+    const fragments = [...(manifest.fragments ?? []), ...manifest.pages]
+      .map((f) => ({ ...f, daPath: String(f.daPath ?? "").replace(/^\/+/, "").replace(/\.html$/i, "") }))
+      .filter((f) => f.daPath);
     for (const f of fragments) {
       const html = sanitise(readFileSync(join(edsDir, f.content), "utf8"));
       const form = new FormData();

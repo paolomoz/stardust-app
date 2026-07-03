@@ -352,7 +352,7 @@ const migrateTask =
   `- Target runtime contract (AuthorKit, fixed by policy): ${AK_CONTRACT}. All content lives under the /${project}/ prefix.\n` +
   `- Export into ${outputsDir}/_eds/ per /workspace/runtime/eds-deploy-guide.md: content/ (every page; home = index.html; fragments under ` +
   `content/fragments/), code/ (blocks/styles/fonts/img/${project}/ + adjusted runtime files), manifest.json listing EVERY page ` +
-  `{slug,title,content,daPath:"/${project}/<path>"} — MERGE with an existing manifest (reuse block names).\n` +
+  `{slug,title,content,daPath:"${project}/<path>"} — daPath has NO leading slash and NO extension; MERGE with an existing manifest (reuse block names).\n` +
   `- Emit emit_milestone(phase="deploy", event="page_converted", data={"slug":"<slug>"}) as each page is authored; keep stardust/status.jsonl appended.\n` +
   `- upload_artifact every _eds/ file. reply_to_user a coverage summary (pages by fidelity tier, blocks reused vs new).\n` +
   `- Finish with emit_milestone(phase="deploy", event="bundle_ready", data={"pages":[<every slug>]}).`;
