@@ -182,6 +182,15 @@ columns are "future / greyed."
 - **Bedrock quota** increase before high concurrency (the real 100-parallel cap;
   pairs with parallel variant builds, which triple per-run concurrency).
 - **Stuck-run watchdog** (timeout) — a dead container can leave status=running.
+  **Observed for real in prod (2026-07-04):** a standard-2 instance OOM-died
+  mid-extract (0.14.x vision gates + full-page Chromium captures) — event
+  stream froze at seq 35, no failure backstop fired (whole instance gone, so
+  server.mjs's exit handler died with it), run sat status=running for 35+ min.
+  Fixed the trigger (instance_type → standard-4; same run then completed in
+  33.4m) but the watchdog gap remains: the DO should alarm N minutes after the
+  last ingest event of a running run and fail it honestly. Cloudflare
+  Containers also needs an out-of-band death signal (onError/instance state)
+  wired to the DO.
 - **Image size.** Explored Cloudflare remote browsers (Browser Rendering): would
   cut the image ~65% (~3.5 GB → ~1.2 GB) by removing local Chromium + slim base,
   BUT it's a re-architecture (the plugins use the full Playwright API in-container;
