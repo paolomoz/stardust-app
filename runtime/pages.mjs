@@ -25,7 +25,12 @@ export function derivePages(dir, homeUrl, cap = 12) {
     const linkBase = j.finalUrl || j.url || homeUrl;
     // Fall back to the page's own host when homeUrl didn't parse (or www differs).
     if (!host) { try { host = hostKey(new URL(linkBase).host); } catch { /* */ } }
-    for (const l of j?.links?.internal ?? []) {
+    // Capture shape changed across plugin versions: ≤0.11 wrote
+    // links.{internal,external} with {href,text} entries; 0.14.x writes a flat
+    // array of absolute URL strings. Accept both — the host filter below drops
+    // externals either way.
+    const rawLinks = Array.isArray(j?.links) ? j.links : (j?.links?.internal ?? []);
+    for (const l of rawLinks) {
       const href = typeof l === "string" ? l : l?.href;
       const text = typeof l === "string" ? "" : (l?.text || "");
       if (!href || /^(mailto:|tel:|javascript:|#)/i.test(href)) continue;

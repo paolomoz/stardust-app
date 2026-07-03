@@ -1,6 +1,7 @@
 {
   "url": "https://www.example.com/",
   "finalUrl": "https://example.com/",
+  "_comment": "old ≤0.11 object shape — kept to prove backward compat",
   "links": {
     "internal": [
       { "href": "/products", "text": "Products" },
