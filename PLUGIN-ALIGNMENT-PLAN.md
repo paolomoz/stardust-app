@@ -1,5 +1,17 @@
 # App ↔ plugin alignment plan — stardust 0.14.4 ("Fable 5 refactor")
 
+> **STATUS (2026-07-03): COMPLETE.** All workstreams implemented and validated
+> live on wheelercat.com: WS1–3 (rebake, run-status tailing, A-first builds —
+> run `d8c9aee4`, 3 variants + cinematic lenis + thumbs), WS4 (native deploy on
+> AuthorKit via sibling bootstrap; fidelity verify caught 2 real dropped
+> links), WS6 (audit rung — original site scored 60/100, 600KB craft report),
+> WS5b (native migrate-chain rollout — **20 pages live on aem.live**, 0 ingest
+> errors). Deferred: deploy-batch.mjs adoption in the publisher (own loop kept,
+> retries + per-page reporting equivalent); marker-watcher retirement (kept as
+> fallback until status.jsonl emission proves out across more runs); verify
+> gate on live-publish rollouts (runs at preview time only). Known cosmetic:
+> a stale duplicate ledger row can survive a failed-then-retried publish.
+
 Aligning the web app to the refactored plugin at
 `/Users/paolo/stardust/source/020726/skills/plugins/stardust` (v0.14.4).
 The app currently bakes v0.11.0 from `/Users/paolo/stardust/source/skills/…`.
