@@ -59,14 +59,14 @@ function deriveProject(url: string): string {
 // milestone LABEL (never on hardcoded phase meaning) so it absorbs pipeline
 // changes automatically. Bump PIPELINE_VERSION when the run flow changes
 // (parallel craft, phase reorders) so old-shape runs don't blend with new ones.
-const PIPELINE_VERSION = "parallel-1";
+const PIPELINE_VERSION = "fable-1";
 type EtaModel = { f: Record<string, number>; meanTotal: number; p10: number; p90: number; hasHistory: boolean };
-// Fallback when there's no matching history — parallel pipeline priors derived
-// from the measured serial run (~29 min: extract ~7m + direct ~6m + 3 crafts
-// serial ~16m → parallel ≈ extract + direct + 1 craft ≈ 16 min).
+// Fallback when there's no matching history — fable-1 priors: plugin 0.14.4
+// (vision gates lengthen extract/prototype) + A-first canon stagger
+// (extract+direct ~13m, craft A ~7m, then B/C in parallel ~7m ≈ 27 min).
 const ETA_DEFAULTS: EtaModel = {
-  f: { brand_ready: 0.42, variants_ready: 0.6, variant_done: 0.95 },
-  meanTotal: 960, p10: 8 * 60, p90: 30 * 60, hasHistory: false,
+  f: { brand_ready: 0.28, variants_ready: 0.5, variant_done: 0.9 },
+  meanTotal: 1620, p10: 15 * 60, p90: 45 * 60, hasHistory: false,
 };
 // Iterate ETA: pooled median of past iteration durations (LLM-free, no similarity
 // index — one bucket per backend). Default until history accrues (seconds).
@@ -127,6 +127,9 @@ export class RunSession extends DurableObject<Env> {
   // Per-variant build retry count — a worker that finishes without uploading its
   // page (observed in prod) gets one re-craft before the variant is dropped.
   private buildRetries: Record<string, number> = {};
+  // A-first canon freeze: variants whose build dispatch waits for the first
+  // (canon) build to settle. Persisted so eviction can't strand them.
+  private stagedBuilds: string[] = [];
   // Deploy/rollout: the run's EDS push state (one code branch + one DA folder
   // per project). Persisted so it survives eviction and reopen.
   private deployState?: DeployState;
@@ -769,6 +772,30 @@ export class RunSession extends DurableObject<Env> {
       return;
     }
 
+    // The plugin's own run contract (stardust/status.jsonl), relayed by the
+    // runtime tailer: deterministic phase boundaries drive the status line,
+    // coarse board progress, and honest blocked surfacing. Panel payloads
+    // still come from the emit_milestone events below.
+    if (e.phase === "runstatus") {
+      const r = ev as { skill?: string; step?: string; event?: string; detail?: string };
+      const skill = (r.skill ?? "").replace(/^stardust:/, "");
+      const step = r.step ?? "";
+      if (r.event === "blocked") {
+        await this.emit({ t: "status", text: `blocked — ${r.detail || step || skill}` });
+        await this.emit({ t: "message.append", message: { id: `blk-${this.seq}`, role: "agent", lead: `⚠ ${skill} blocked${step ? ` at ${step}` : ""}${r.detail ? ` — ${r.detail}` : ""}.` } });
+        return;
+      }
+      if (r.event === "start" && step) await this.emit({ t: "status", text: `${skill} · ${step}` });
+      if (r.event === "end") {
+        if (r.detail) await this.emit({ t: "status", text: `${skill} · ${step} — ${r.detail}` });
+        // Coarse, monotonic board advancement per skill boundary (markers +
+        // milestones refine it; bumpProgress dedupes regressions).
+        if (skill === "extract") await this.taskAdvance("crawl", "read", 30);
+        if (skill === "direct") await this.taskAdvance("analyze", "generate", 70);
+      }
+      return;
+    }
+
     // M6: an iteration finished. Failure must NOT fail the (already-done) run —
     // just report it and leave the variant usable; success hot-swaps the preview.
     if (e.phase === "iterate") {
@@ -1036,13 +1063,41 @@ export class RunSession extends DurableObject<Env> {
     if (!creds) return this.fail("runtime token missing for the build fan-out");
     this.parallelUplift = true; // fan-out implies the split pipeline (survives eviction via builds.parallel)
     this.pendingBuilds = cards.map((c) => c.id);
+    // A-first canon freeze (plugin contract): the canon variant builds alone
+    // first and re-snapshots the bundle; the siblings fan out when it settles,
+    // restoring the refreshed bundle so they fork consistent structure.
+    const first = cards.find((c) => c.id === "A") ?? cards[0];
+    this.stagedBuilds = cards.filter((c) => c.id !== first.id).map((c) => c.id);
     await this.persistResult();
     this.taskSet("generate", "done");
     this.taskSet("validate", "run");
     if (this.tasks.length) await this.emit({ t: "tasks.init", tasks: this.tasks });
-    await this.emit({ t: "status", text: `building ${cards.length} variants in parallel` });
+    await this.emit({ t: "status", text: `crafting variant ${first.id} (canon first)` });
     await this.bumpProgress(76);
-    await this.emit({ t: "message.append", message: { id: `fan-${this.seq}`, role: "agent", lead: `Directions locked — crafting **${cards.length} variants in parallel**.` } });
+    await this.emit({ t: "message.append", message: { id: `fan-${this.seq}`, role: "agent", lead: this.stagedBuilds.length
+      ? `Directions locked — crafting variant **${first.id}** first (it freezes the canon), then **${this.stagedBuilds.join(" + ")}** in parallel.`
+      : `Directions locked — crafting variant **${first.id}**.` } });
+    try {
+      await this.triggerRuntime({ runId: this.runId, token: creds.token, backend: creds.backend, mode: "build", jobId: `bld-${first.id}`, variantId: first.id, variantFile: RunSession.fileOfSrc(first.src) });
+    } catch (err) {
+      await this.emit({ t: "message.append", message: { id: `bstart-${this.seq}`, role: "agent", lead: `Couldn't start variant ${first.id}'s build (${(err as Error).message}) — falling back to parallel.` } });
+      await this.buildSettled(first.id, false); // also releases the staged siblings
+    }
+  }
+
+  /** Fan out the builds that waited for the canon variant to settle. */
+  private async dispatchStaged(): Promise<void> {
+    const ids = this.stagedBuilds;
+    if (!ids.length) return;
+    this.stagedBuilds = [];
+    await this.persistResult();
+    const creds = await this.jobCreds();
+    const cards = (this.realVariants?.variants ?? []).filter((c) => ids.includes(c.id));
+    if (!creds || !cards.length) {
+      for (const id of ids) await this.buildSettled(id, false);
+      return;
+    }
+    await this.emit({ t: "status", text: `building ${cards.length} sibling variants in parallel` });
     for (const c of cards) {
       try {
         await this.triggerRuntime({ runId: this.runId, token: creds.token, backend: creds.backend, mode: "build", jobId: `bld-${c.id}`, variantId: c.id, variantFile: RunSession.fileOfSrc(c.src) });
@@ -1074,6 +1129,8 @@ export class RunSession extends DurableObject<Env> {
     if (delivered) this.buildsSucceeded += 1;
     else if (ok) await this.emit({ t: "message.append", message: { id: `bmiss-${this.seq}`, role: "agent", lead: `A build worker finished without delivering its page${variant ? ` (variant ${variant})` : ""} — not counting it.` } });
     await this.persistResult();
+    // The canon build settled (delivered or not) — release the staged siblings.
+    if (this.stagedBuilds.length) await this.dispatchStaged();
     if (this.pendingBuilds.length) return;
     if (this.buildsSucceeded > 0) return this.completeRun();
     return this.fail("None of the variant builds delivered.");
@@ -1128,7 +1185,7 @@ export class RunSession extends DurableObject<Env> {
       finished: this.finished || cur.finished || false,
       tasks: this.tasks.length ? this.tasks : (cur.tasks ?? null),
       builds: this.parallelUplift || this.pendingBuilds.length || this.buildsSucceeded > 0
-        ? { pending: this.pendingBuilds, ok: this.buildsSucceeded, parallel: this.parallelUplift }
+        ? { pending: this.pendingBuilds, ok: this.buildsSucceeded, parallel: this.parallelUplift, staged: this.stagedBuilds }
         : (cur.builds ?? null),
       deploy: this.deployState ?? (cur as { deploy?: unknown }).deploy ?? null,
       demo: this.demo || (cur as { demo?: boolean }).demo || false,
@@ -1155,7 +1212,7 @@ export class RunSession extends DurableObject<Env> {
         protoVariant?: string | null;
         finished?: boolean;
         tasks?: TaskItem[] | null;
-        builds?: { pending?: string[]; ok?: number; parallel?: boolean } | null;
+        builds?: { pending?: string[]; ok?: number; parallel?: boolean; staged?: string[] } | null;
         iter?: { v?: string | null; f?: string | null; start?: number } | null;
         deploy?: DeployState | null;
         demo?: boolean;
@@ -1176,6 +1233,7 @@ export class RunSession extends DurableObject<Env> {
         this.pendingBuilds = r.builds.pending ?? [];
         this.buildsSucceeded = r.builds.ok ?? 0;
         if (r.builds.parallel) this.parallelUplift = true;
+        if (r.builds.staged?.length && !this.stagedBuilds.length) this.stagedBuilds = r.builds.staged;
       }
       if (r.iter && !this.iterating) {
         this.iterating = true;

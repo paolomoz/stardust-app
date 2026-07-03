@@ -7,9 +7,10 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 IMAGE="${IMAGE:-stardust-sandbox}"
 
-# stardust is a live dev tree — always re-staged from source, so editing the
-# plugin + rebuilding picks up the new version automatically.
-STARDUST_SRC="${STARDUST_SRC:-/Users/paolo/stardust/source/skills/plugins/stardust/skills}"
+# stardust source: the 0.14.4 "Fable 5 refactor" snapshot (the app is aligned
+# to this contract — see PLUGIN-ALIGNMENT-PLAN.md). Override STARDUST_SRC to
+# point at a different tree when validating a newer plugin.
+STARDUST_SRC="${STARDUST_SRC:-/Users/paolo/stardust/source/020726/skills/plugins/stardust/skills}"
 
 # impeccable lives in the plugin cache under a version dir. Auto-resolve the
 # HIGHEST installed version so a future `impeccable` update is picked up on the

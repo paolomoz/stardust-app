@@ -31,7 +31,7 @@
      template: VARIANT_ID, VARIANT_FILE, SLUG, PAGE_URL, PAGE_TITLE, INSTRUCTION
    =========================================================================== */
 import { readFile } from "node:fs/promises";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { makeProvider } from "./provider.mjs";
 import { makeBedrockProvider } from "./provider-bedrock.mjs";
@@ -129,19 +129,51 @@ async function bundleWorkspace() {
   }
 }
 
-/** Pin one variant as the single in-scope DESIGN so `prototype` renders only it:
- *  copy DESIGN-<id>.{md,json} to the unsuffixed alias and stash the siblings. */
+/** Pin one variant by STASHING its siblings — the plugin's own selector is
+ *  DESIGN-<id> file PRESENCE at the project root (prototype has no --variant
+ *  flag), and the -<id> suffix keys per-variant motion resolution, so the file
+ *  keeps its name; we never copy it to an unsuffixed alias. */
 function pinVariant(id) {
   try {
     execFileSync("bash", ["-lc",
       `cd ${workdir} && mkdir -p stardust/_stash && ` +
       `for f in DESIGN-*.md DESIGN-*.json; do [ -e "$f" ] || continue; case "$f" in ` +
-      `DESIGN-${id}.*) ;; *) mv "$f" stardust/_stash/ ;; esac; done; ` +
-      `[ -e DESIGN-${id}.md ] && cp DESIGN-${id}.md DESIGN.md; ` +
-      `[ -e DESIGN-${id}.json ] && cp DESIGN-${id}.json DESIGN.json; true`], { stdio: "inherit" });
+      `DESIGN-${id}.*) ;; *) mv "$f" stardust/_stash/ ;; esac; done; true`], { stdio: "inherit" });
   } catch (e) {
     console.error("pinVariant failed:", String(e?.message ?? e));
   }
+}
+
+/** Tail the plugin's own run contract (stardust/status.jsonl — one JSON line
+ *  per phase start/end/blocked) and relay each new line to the ingest bridge.
+ *  Deterministic progress: the DO maps these to the board without waiting for
+ *  the model to emit a milestone. Only whole lines are consumed. */
+function startStatusTailer() {
+  const file = `${workdir}/stardust/status.jsonl`;
+  let offset = 0;
+  const tick = () => {
+    try {
+      if (!existsSync(file)) return;
+      const buf = readFileSync(file, "utf8");
+      const nl = buf.lastIndexOf("\n");
+      if (nl < offset) return; // no complete new line yet
+      const chunk = buf.slice(offset, nl + 1);
+      offset = nl + 1;
+      for (const line of chunk.split("\n")) {
+        const t = line.trim();
+        if (!t) continue;
+        try {
+          const j = JSON.parse(t);
+          if (j?.skill && j?.event) {
+            void ingest.event({ phase: "runstatus", skill: j.skill, step: j.phase ?? "", event: j.event, detail: j.detail, artifact: j.artifact }).catch(() => {});
+          }
+        } catch { /* malformed line — skip */ }
+      }
+    } catch { /* best-effort */ }
+  };
+  const t = setInterval(tick, 2000);
+  t.unref?.();
+  return () => { tick(); clearInterval(t); }; // final flush on stop
 }
 
 /** Deterministic progress watcher: the model batches milestone emissions, so the
@@ -182,35 +214,43 @@ const upliftTask =
     `The skills are baked at /workspace/skills; work in /workspace and write deliverables to ${outputsDir}. ` +
     `Emit each milestone (emit_milestone) the instant it happens and upload each deliverable (upload_artifact) as soon as it exists.`;
 
-// Phase 1 of the parallel uplift: extract + direct ONLY. The variant pages are
-// crafted by parallel "build" workers afterwards — never by this container.
+// Phase 1 of the parallel uplift: everything BEFORE the variant builds — the
+// pages are crafted by fan-out "build" workers afterwards, never by this
+// container. Follows uplift's own chain (extract --single → tensions →
+// reference grounding → three directions → direct) in hands-off mode.
 const directTask =
-  `Redesign ${url} for presales. Run stardust:uplift NON-INTERACTIVELY, but ONLY through its extract and direct phases — ` +
-  `the three variant pages are built afterwards by parallel workers, NOT by you. ` +
+  `Redesign ${url} for presales. Run stardust:uplift in HANDS-OFF mode, but ONLY through its direction phases — ` +
+  `stop BEFORE prototyping; the three variant pages are built afterwards by parallel workers, NOT by you. ` +
   `The skills are baked at /workspace/skills; work in /workspace; write deliverables to ${outputsDir}.\n` +
-  `1. Run uplift's extract phase in full (live render, brand read, tensions). Emit extract.started / extract.seed / ` +
-  `extract.tensions / extract.brand_ready milestones the INSTANT each happens, and upload brand-review.html plus every asset it references.\n` +
-  `2. Run uplift's direct phase in full (Mode A, three brand-faithful directions A/B/C): write stardust/direction.md and the ` +
-  `per-variant DESIGN-A/B/C.md + DESIGN-A/B/C.json at the project root, exactly per the skill.\n` +
-  `3. As the LAST thing, emit_milestone(phase="direct", event="variants_ready", data={"sharedFixes":[…],"variants":[{id,title,pitch,whatif,role,file,thumb},…]}) ` +
-  `using uplift's canonical file names (home-A-proposed.html, home-B-proposed.html, home-C-cinematic.html; thumbs assets/thumb-<id>.png) — ` +
-  `those files don't exist yet; the build workers create and upload them.\n` +
-  `Do NOT run the prototype phase, do NOT build any home-*.html, do NOT emit prototype.variant_done or done.`;
+  `1. Uplift Phase 1: stardust:extract ${url} --single, in full (live render, vision-verified capture). Emit extract.started / ` +
+  `extract.seed / extract.tensions / extract.brand_ready milestones the INSTANT each happens, and upload brand-review.html plus every asset it references.\n` +
+  `2. Uplift Phases 2–4: tensions/traits (uplift-improvements.md + uplift-questions.md), reference grounding, the three variant ` +
+  `directions, then stardust:direct — ending with stardust/direction.md and the per-variant DESIGN-A/B/C.{md,json} at the project root, exactly per the skill.\n` +
+  `3. As the LAST thing, emit_milestone(phase="direct", event="variants_ready", data={"sharedFixes":[…],"variants":[{id,title,pitch,whatif,role,file,thumb},…]}) — ` +
+  `sharedFixes from uplift-improvements.md; file names home-A-proposed.html, home-B-proposed.html, home-C-cinematic.html; thumbs assets/thumb-<id>.png. ` +
+  `Those files don't exist yet; the build workers create and upload them.\n` +
+  `Keep stardust/status.jsonl appended at every phase boundary (run-status contract). ` +
+  `Do NOT run the prototype phase, do NOT build any variant page, do NOT emit prototype.variant_done or done.`;
 
-// Phase 2 worker: craft ONE variant's home page from the phase-1 bundle.
+// Phase 2 worker: craft ONE variant's page from the phase-1 bundle. This IS the
+// plugin's documented parallel mechanism (isolated workspace copy, siblings
+// stashed, DESIGN-<id> presence selects the variant).
 const buildTask =
-  `You are one of the parallel builders finishing an uplift of ${url}: craft variant ${variantId}'s home page. ` +
-  `The phase-1 workspace is restored under /workspace (brand extraction + captures under stardust/current, stardust/direction.md, per-variant DESIGN files); ` +
-  `DESIGN.md/DESIGN.json at the project root are already pinned to variant ${variantId}. Write deliverables to ${outputsDir}.\n` +
-  `1. Read /workspace/skills/stardust/uplift/SKILL.md (the per-variant build contract, gates included) and ` +
-  `stardust/direction.md's variant ${variantId} section.\n` +
-  `2. Build ${variantFile} THROUGH $impeccable craft (read /workspace/skills/impeccable/reference/craft.md and follow it): ` +
-  `production-grade, brand-faithful, real content from the extracted capture (stardust/current/pages/), then inspect and improve it ` +
-  `in the browser (Playwright screenshots) until it meets the studio bar. Run uplift's validation gates for this ONE variant.\n` +
-  `3. Save it to ${outputsDir}/${variantFile}; capture a thumbnail to ${outputsDir}/assets/thumb-${variantId}.png; ` +
-  `upload_artifact both plus any assets the page references.\n` +
+  `You are one isolated parallel builder finishing an uplift of ${url}: craft variant ${variantId}'s page. ` +
+  `This workspace is your own copy of the project (the plugin's isolated-workspace parallel contract): brand extraction + captures ` +
+  `under stardust/current, stardust/direction.md, and ONLY DESIGN-${variantId}.{md,json} at the project root (siblings stashed) — ` +
+  `file presence selects the variant; do not restore or touch the stashed siblings. Write deliverables to ${outputsDir}.\n` +
+  `1. Read /workspace/skills/stardust/uplift/SKILL.md (the per-variant build contract, gates included — vision gate too) and ` +
+  `stardust/direction.md's variant ${variantId} section. For variant C the motion register comes from DESIGN-${variantId}.json extensions.motion.register.\n` +
+  `2. Build the page THROUGH $impeccable craft (read /workspace/skills/impeccable/reference/craft.md and follow it): production-grade, ` +
+  `brand-faithful, real content from the extracted capture (stardust/current/pages/), then inspect and improve it in the browser ` +
+  `(Playwright screenshots) until it meets the studio bar. Run the validation gates for this ONE variant. The plugin writes it under stardust/prototypes/.\n` +
+  `3. Copy the finished page to ${outputsDir}/${variantFile}. If it references lenis.min.js / lenis.min.css (cinematic), copy those next to it ` +
+  `in ${outputsDir} (or rewrite to paths that resolve from the outputs tree) so the page renders in an iframe. ` +
+  `Capture a thumbnail to ${outputsDir}/assets/thumb-${variantId}.png (1280px, above the fold); if the capture fails, use the newest ` +
+  `screenshot under stardust/validation/ instead. upload_artifact the page, the thumb, and every asset the page references.\n` +
   `4. Finish with emit_milestone(phase="prototype", event="variant_done", data={"variant":"${variantId}","file":"${variantFile}"}). ` +
-  `Build ONLY variant ${variantId} — never touch the other variants' files.`;
+  `Build ONLY variant ${variantId}.`;
 
 const iterateTask =
   `You are in an ongoing session for variant ${variantId} of an existing redesign (its file is ${outputsDir}/${variantFile}; the persisted workspace is /workspace/stardust, deliverables in ${outputsDir}). ` +
@@ -239,7 +279,7 @@ const variantTask =
 const tSlug = slug || "page";
 const templateTask =
   `You are rendering another page of an existing site in a chosen redesign direction (variant ${variantId}). ` +
-  `The target design system is DESIGN.md/DESIGN.json at the project root (already pinned to variant ${variantId}); the persisted context is under /workspace/stardust; write deliverables to ${outputsDir}. ` +
+  `The target design system is DESIGN-${variantId}.{md,json} at the project root — the ONLY in-scope variant (siblings stashed; file presence selects it); the persisted context is under /workspace/stardust; write deliverables to ${outputsDir}. ` +
   (slug
     ? `Prototype the page "${pageTitle}" at ${pageUrl} (use slug "${slug}").\n`
     : `The director says: "${instruction}". If this is a QUESTION about the prototypes, answer it via reply_to_user and finish with emit_milestone(phase="template", event="answer"). Otherwise identify which page of ${url || "the site"} they mean, choose a short slug for it, and prototype it.\n`) +
@@ -355,6 +395,9 @@ const terminal = (name, args) => {
 // The watcher only helps long uplift phases (extract/direct emit late); short
 // post-run jobs have reliable terminal milestones.
 const stopWatcher = mode === "uplift" ? startMarkerWatcher() : null;
+// The status tailer relays the plugin's own run contract for every job that
+// runs skills (everything but iterate's surgical edit, which is impeccable-only).
+const stopStatus = mode !== "iterate" ? startStatusTailer() : null;
 
 try {
   await ingest.event({ type: "narration", text:
@@ -382,6 +425,7 @@ try {
   if (mode === "iterate") await ingest.uploadJSON(`_sessions/${variantId}.json`, steps).catch(() => {});
 
   stopWatcher?.();
+  stopStatus?.();
 
   // Backstop: never strand the UI in "loading" if the loop ended without a
   // terminal milestone. Default each mode to an honest terminal event.
@@ -411,10 +455,15 @@ try {
   // A new direction changed the workspace (new DESIGN-<name>) — re-bundle so
   // later template jobs can render pages in it too.
   if (mode === "variant" && done) await bundleWorkspace();
+  // A-first canon freeze: variant A's build re-snapshots the bundle (its canon
+  // + rendered structure) so the B/C workers — dispatched after A settles —
+  // fork a consistent skeleton instead of each inventing their own.
+  if (mode === "build" && done && variantId === "A") await bundleWorkspace();
 
   console.log(`runtime finished: mode=${mode}${stage ? `/${stage}` : ""} done=${done} calls=${usage.calls} tokens=${usage.total}`);
 } catch (e) {
   stopWatcher?.();
+  stopStatus?.();
   const message = String(e?.message ?? e);
   console.error("runtime error:", message);
   // Structured failure so the UI shows an honest error, not a hung spinner. A
