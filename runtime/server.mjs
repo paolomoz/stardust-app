@@ -54,14 +54,15 @@ function jobEnv(job) {
     e.VARIANT_ID = job.variantId || "A";
     e.VARIANT_FILE = job.variantFile || "";
   }
-  if (job.mode === "deploy" || job.mode === "verify") {
+  if (job.mode === "deploy" || job.mode === "verify" || job.mode === "migrate") {
     e.PROJECT = job.project || "";
     if (job.org) e.DA_ORG = job.org;
     if (job.site) e.DA_SITE = job.site;
     if (job.branch) e.BRANCH = job.branch;
     if (job.previewHost) e.PREVIEW_HOST = job.previewHost;
     e.PAGES = JSON.stringify(job.pages || []);
-    if (job.mode === "deploy" && job.variantId) e.VARIANT_ID = job.variantId;
+    if (job.mode !== "verify" && job.variantId) e.VARIANT_ID = job.variantId;
+    if (job.mode === "migrate") e.PAGE_CAP = "20";
   }
   if ((job.mode === "uplift" || !job.mode) && job.stage) e.UPLIFT_STAGE = job.stage;
   return e;
@@ -74,7 +75,7 @@ function failureEvent(job, message) {
   if (job.mode === "variant") return { phase: "variant", event: "failed", message };
   if (job.mode === "template") return { phase: "template", event: "page_failed", slug: job.slug || "", message };
   if (job.mode === "build") return { phase: "prototype", event: "variant_failed", variant: job.variantId, message };
-  if (job.mode === "deploy") return { phase: "deploy", event: "failed", message };
+  if (job.mode === "deploy" || job.mode === "migrate") return { phase: "deploy", event: "failed", message };
   if (job.mode === "verify") return { phase: "deploy", event: "verified", ok: false, message };
   if (job.mode === "audit") return { phase: "audit", event: "failed", message };
   return { phase: "failed", message };

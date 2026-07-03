@@ -338,6 +338,25 @@ const verifyTask =
   `5. reply_to_user a short fidelity summary. Finish with emit_milestone(phase="deploy", event="verified", data={"ok":true|false}).\n` +
   `Judge per the diff skill's pass bar (no/justified visual flags AND zero structural 🔴). Network access to ${previewHost} is available.`;
 
+// Whole-site rollout: the plugin's hands-off migration chain through the
+// AUTHORING phases only — transport stays with the host publisher (same _eds/
+// contract as deploy, so the entire publish→preview→verify pipeline is reused).
+const migrateTask =
+  `Run the full hands-off migration chain for ${url}: read /workspace/skills/stardust/stardust/SKILL.md § Hands-off mode, then execute ` +
+  `stardust:prepare-migration (--skip-confirm) → stardust:migrate → stardust:rollout, with these sandbox constraints:\n` +
+  `- Set state.json.handsOff=true. The workspace is restored (extraction, directions; DESIGN-${env.VARIANT_ID || "C"} is the pinned direction). ` +
+  `Cap the inventory at ${env.PAGE_CAP || 20} pages; archetypes-only migrate is FINE for template siblings (declare fidelity tiers per the skill).\n` +
+  `- TRANSPORT SPLIT: you have NO git and NO DA_TOKEN. Run rollout ONLY through its authoring phases — A inventory, B block-dedup plan, ` +
+  `C page AUTHORING (write every page's DA body fragment + the deduped blocks), D site assembly (sitemap/robots/index), and delivery-lint each page. ` +
+  `DO NOT attempt DA writes, previews, publishes, or git pushes — the host publisher does all transport afterwards.\n` +
+  `- Target runtime contract (AuthorKit, fixed by policy): ${AK_CONTRACT}. All content lives under the /${project}/ prefix.\n` +
+  `- Export into ${outputsDir}/_eds/ per /workspace/runtime/eds-deploy-guide.md: content/ (every page; home = index.html; fragments under ` +
+  `content/fragments/), code/ (blocks/styles/fonts/img/${project}/ + adjusted runtime files), manifest.json listing EVERY page ` +
+  `{slug,title,content,daPath:"/${project}/<path>"} — MERGE with an existing manifest (reuse block names).\n` +
+  `- Emit emit_milestone(phase="deploy", event="page_converted", data={"slug":"<slug>"}) as each page is authored; keep stardust/status.jsonl appended.\n` +
+  `- upload_artifact every _eds/ file. reply_to_user a coverage summary (pages by fidelity tier, blocks reused vs new).\n` +
+  `- Finish with emit_milestone(phase="deploy", event="bundle_ready", data={"pages":[<every slug>]}).`;
+
 const auditTask =
   `Audit ${url} — run stardust:audit in full, hands-off: read /workspace/skills/stardust/audit/SKILL.md and follow it ` +
   `(all phases; use the skill's degradation ladder — no refero MCP and no marketing-skills plugin here, so their built-in ` +
@@ -428,6 +447,22 @@ if (mode === "iterate") {
   task = auditTask;
   doneHint = `Finish now: upload audit/report.html + audit/audit.json and call emit_milestone(phase="audit", event="done", data={…scores…}) — or event="failed" with the reason.`;
   await restoreBundle(); // best-effort: lets the skill reuse a fresh extraction
+} else if (mode === "migrate") {
+  task = migrateTask;
+  doneHint = `Finish now: upload every _eds/ file and call emit_milestone(phase="deploy", event="bundle_ready", data={"pages":[…]}).`;
+  await restoreBundle();
+  if (env.VARIANT_ID) pinVariant(env.VARIANT_ID);
+  const prevManifest = await ingest.downloadJSON("_eds/manifest.json").catch(() => null);
+  if (prevManifest) {
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    await mkdir(`${outputsDir}/_eds`, { recursive: true }).catch(() => {});
+    await writeFile(`${outputsDir}/_eds/manifest.json`, JSON.stringify(prevManifest, null, 2)).catch(() => {});
+    for (const b of prevManifest.blocks ?? []) {
+      await ingest.download(`_eds/code/blocks/${b}/${b}.css`, `${outputsDir}/_eds/code/blocks/${b}/${b}.css`).catch(() => {});
+      await ingest.download(`_eds/code/blocks/${b}/${b}.js`, `${outputsDir}/_eds/code/blocks/${b}/${b}.js`).catch(() => {});
+    }
+    await ingest.download("_eds/code/styles/styles.css", `${outputsDir}/_eds/code/styles/styles.css`).catch(() => {});
+  }
 } else if (stage === "direct") {
   task = directTask;
   doneHint = `Finish now: emit_milestone(phase="direct", event="variants_ready", data={"sharedFixes":[…],"variants":[…]}) with the three directions.`;
@@ -442,7 +477,7 @@ const terminal = (name, args) => {
   if (mode === "variant") return p === "variant" && (e === "added" || e === "answer");
   if (mode === "template") return p === "template" && (e === "page_done" || e === "answer");
   if (mode === "build") return p === "prototype" && e === "variant_done";
-  if (mode === "deploy") return p === "deploy" && e === "bundle_ready";
+  if (mode === "deploy" || mode === "migrate") return p === "deploy" && e === "bundle_ready";
   if (mode === "verify") return p === "deploy" && e === "verified";
   if (mode === "audit") return p === "audit" && (e === "done" || e === "failed");
   if (stage === "direct") return p === "direct" && e === "variants_ready";
@@ -465,6 +500,7 @@ try {
     : mode === "deploy" ? `${provider.name} ${provider.model} — converting ${deployPages.length} page(s) to Edge Delivery`
     : mode === "verify" ? `${provider.name} ${provider.model} — verifying ${deployPages.length} deployed page(s) against the prototypes`
     : mode === "audit" ? `${provider.name} ${provider.model} — auditing ${url}`
+    : mode === "migrate" ? `${provider.name} ${provider.model} — migrating the whole site (hands-off chain, cap ${env.PAGE_CAP || 20} pages)`
     : `${provider.name} ${provider.model} — starting${url ? ` uplift of ${url}` : ""}.` });
 
   const { usage, done, steps } = await runLoop({
@@ -494,7 +530,7 @@ try {
       : mode === "variant" ? { phase: "variant", event: "failed", message: "the direction wasn't produced" }
       : mode === "template" ? { phase: "template", event: "page_failed", slug: slug || tSlug, message: "the page wasn't rendered" }
       : mode === "build" ? { phase: "prototype", event: "variant_failed", variant: variantId, message: "the variant wasn't built" }
-      : mode === "deploy" ? { phase: "deploy", event: "failed", message: "the conversion didn't finish" }
+      : mode === "deploy" || mode === "migrate" ? { phase: "deploy", event: "failed", message: "the conversion didn't finish" }
       : mode === "verify" ? { phase: "deploy", event: "verified", ok: false, message: "the verify didn't finish" }
       : mode === "audit" ? { phase: "audit", event: "failed", message: "the audit didn't finish" }
       : stage === "direct" ? { phase: "failed", message: "the directions weren't composed" }
@@ -536,7 +572,7 @@ try {
       : mode === "variant" ? { phase: "variant", event: "failed", message }
       : mode === "template" ? { phase: "template", event: "page_failed", slug: slug || tSlug, message }
       : mode === "build" ? { phase: "prototype", event: "variant_failed", variant: variantId, message }
-      : mode === "deploy" ? { phase: "deploy", event: "failed", message }
+      : mode === "deploy" || mode === "migrate" ? { phase: "deploy", event: "failed", message }
       : mode === "verify" ? { phase: "deploy", event: "verified", ok: false, message }
       : mode === "audit" ? { phase: "audit", event: "failed", message }
       : { phase: "failed", message };

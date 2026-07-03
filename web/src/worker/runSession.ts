@@ -925,14 +925,12 @@ export class RunSession extends DurableObject<Env> {
           await this.emit({ t: "message.append", message: { id: `tpl-${slug}-${this.seq}`, role: "agent", lead: `Page **${e.title || slug}** prototyped in variant ${this.protoVariant ?? ""}.` } });
         }
         await this.finishTemplate();
-        await this.continueRollout();
         return;
       }
       if (e.event === "page_failed") {
         if (slug) { this.upsertTemplate({ slug, title: e.title || slug, variant: this.protoVariant ?? "", status: "failed", message: e.message }); await this.persistResult(); await this.emitTemplates(); }
         await this.emit({ t: "message.append", message: { id: `tperr-${this.seq}`, role: "agent", lead: `Couldn't prototype ${e.title || slug || "that page"}${e.message ? ` — ${e.message}` : ""}.` } });
         await this.finishTemplate();
-        await this.continueRollout();
         return;
       }
       if (e.event === "answer") { await this.finishTemplate(); return; }
@@ -1806,8 +1804,10 @@ export class RunSession extends DurableObject<Env> {
     await this.triggerPublish(true);
   }
 
-  /** Whole-site rollout: prototype every remaining discovered page, then deploy
-   *  the lot (live). Continues via continueRollout() as template jobs finish. */
+  /** Whole-site rollout — the plugin's native migrate chain: ONE long job runs
+   *  hands-off prepare-migration → migrate → rollout AUTHORING (no transport),
+   *  exports the whole site into the same _eds/ contract deploy uses, and the
+   *  existing publish → preview → live → verify pipeline ships it. */
   private async runRollout(): Promise<void> {
     if (this.env.SANDBOX) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Whole-site rollout currently runs on the local environment only." } }); return; }
     if (this.deployState?.busy) {
@@ -1816,9 +1816,9 @@ export class RunSession extends DurableObject<Env> {
     }
     const pin = this.protoVariantFile();
     if (!pin) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Pick a direction first." } }); return; }
+    const creds = await this.jobCreds();
+    if (!creds) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "I can't roll out this run — its runtime token is missing." } }); return; }
     const cfg = await this.edsConfig();
-    const settled = new Set(this.realTemplates.filter((t) => t.status === "done" || t.status === "failed").map((t) => t.slug));
-    const todo = this.realPages.filter((p) => !settled.has(p.slug)).map((p) => p.slug);
     this.deployState = {
       ...cfg,
       variant: pin.variant,
@@ -1828,28 +1828,20 @@ export class RunSession extends DurableObject<Env> {
       pages: this.deployState?.pages ?? [],
     };
     await this.emitDeploy();
-    if (todo.length) {
-      await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Rolling out **the whole site** — prototyping ${todo.length} remaining page${todo.length > 1 ? "s" : ""} in variant ${pin.variant} first, then deploying everything live.` } });
-      await this.runTemplates(todo);
-      // If nothing actually started (all skipped), fall through to deploy now.
-      if (this.templateInflight === 0) await this.continueRollout();
-    } else {
-      await this.continueRollout();
+    await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: `Rolling out **the whole site** in variant ${pin.variant} — the full migration chain (typed inventory → migrate with fidelity tiers → site authoring), then everything ships live. This is the long one.` } });
+    await this.emit({ t: "busy", value: true });
+    await this.emit({ t: "eta", seconds: 60 * 60, startedAt: Date.now() });
+    await this.emit({ t: "rail", rail: this.railState({ signature: "watch it build", busy: true, clock: "⏱ migrating the site" }) });
+    try {
+      await this.triggerRuntime({
+        runId: this.runId, token: creds.token, backend: creds.backend, mode: "migrate", jobId: "migrate",
+        url: (await this.env.DB.prepare("SELECT url FROM runs WHERE id = ?").bind(this.runId).first<{ url: string }>())?.url ?? "",
+        project: cfg.project, org: cfg.org, site: cfg.site, branch: cfg.branch, previewHost: cfg.previewHost,
+        variantId: pin.variant, pages: [],
+      });
+    } catch (e) {
+      await this.onDeployEvent({ event: "failed", message: (e as Error).message });
     }
-  }
-
-  /** Rollout continuation: once no discovered page is still unrendered, deploy
-   *  home + every prototyped page, live. Stateless — recomputed per event, so
-   *  it survives DO eviction. */
-  private async continueRollout(): Promise<void> {
-    const d = this.deployState;
-    if (!d?.rollout || !d.busy) return;
-    if (d.pages.some((p) => p.status === "converting" || p.status === "pushing")) return; // deploy job already running
-    const settled = new Set(this.realTemplates.filter((t) => t.status === "done" || t.status === "failed").map((t) => t.slug));
-    const remaining = this.realPages.filter((p) => !settled.has(p.slug));
-    if (remaining.length) return; // more prototypes still rendering
-    const slugs = ["home", ...this.realTemplates.filter((t) => t.status === "done").map((t) => t.slug)];
-    await this.runDeploy(slugs, { fromRollout: true });
   }
 
   /** Post-preview fidelity verify: the deploy skill's Step 10 (stardust:diff)
@@ -1899,15 +1891,19 @@ export class RunSession extends DurableObject<Env> {
     const d = this.deployState;
     if (!d) return;
     if (e.event === "page_converted") {
-      this.setDeployPage(e.slug, { status: "converted" });
+      // A rollout's migration discovers pages the ledger hasn't seen — grow a
+      // row on first sight instead of dropping the event.
+      if (e.slug && !d.pages.some((p) => p.slug === e.slug)) d.pages.push({ slug: e.slug, title: e.slug, status: "converted" });
+      else this.setDeployPage(e.slug, { status: "converted" });
       await this.emitDeploy();
       await this.emit({ t: "status", text: `converted ${e.slug}` });
       return;
     }
     if (e.event === "bundle_ready") {
+      for (const s of e.pages ?? []) if (!d.pages.some((p) => p.slug === s)) d.pages.push({ slug: s, title: s, status: "converted" });
       for (const p of d.pages) if (p.status === "converting" || p.status === "converted") this.setDeployPage(p.slug, { status: "pushing" });
       await this.emitDeploy();
-      await this.emit({ t: "message.append", message: { id: `dp-${this.seq}`, role: "agent", lead: `Blocks ready — pushing code to \`${d.branch}\` and content to DA…` } });
+      await this.emit({ t: "message.append", message: { id: `dp-${this.seq}`, role: "agent", lead: `Blocks ready — pushing ${d.pages.length} page${d.pages.length > 1 ? "s" : ""} of code + content…` } });
       await this.triggerPublish(d.rollout || d.live);
       return;
     }
