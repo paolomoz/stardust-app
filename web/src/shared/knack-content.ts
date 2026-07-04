@@ -64,6 +64,26 @@ export interface VariantMeta {
   moves?: string[];
 }
 
+/** Other pages of the demo site — the prototype-phase pool (offline). */
+export const KNACK_PAGES = [
+  { slug: "pricing", title: "Pricing", url: "https://www.knack.com/pricing" },
+  { slug: "platform", title: "Platform", url: "https://www.knack.com/platform" },
+  { slug: "security", title: "Security", url: "https://www.knack.com/security" },
+  { slug: "customers", title: "Customers", url: "https://www.knack.com/customers" },
+  { slug: "templates", title: "Templates", url: "https://www.knack.com/templates" },
+];
+
+/** Demo Edge Delivery target — the same conventions a real deploy uses (one
+ *  project = one code branch + one DA folder), so the deploy screen shows the
+ *  real URL scheme while everything stays offline. */
+export const KNACK_EDS = {
+  project: "knack-com",
+  org: "paolomoz",
+  site: "stardust-app-fable",
+  branch: "knack-com",
+  previewHost: "https://knack-com--stardust-app-fable--paolomoz.aem.page",
+};
+
 export const VARIANT_META: VariantMeta[] = [
   {
     id: "A",

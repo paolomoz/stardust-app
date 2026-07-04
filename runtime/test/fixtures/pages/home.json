@@ -1,0 +1,28 @@
+{
+  "url": "https://www.example.com/",
+  "finalUrl": "https://example.com/",
+  "_comment": "old ≤0.11 object shape — kept to prove backward compat",
+  "links": {
+    "internal": [
+      { "href": "/products", "text": "Products" },
+      { "href": "https://www.example.com/products/", "text": "Products (dup path)" },
+      { "href": "/about-us", "text": "About us" },
+      { "href": "/services/consulting", "text": "Consulting" },
+      { "href": "/contact#form", "text": "Contact" },
+      { "href": "/", "text": "Home" },
+      { "href": "mailto:hello@example.com", "text": "Mail" },
+      { "href": "tel:+123456", "text": "Call" },
+      { "href": "https://other-site.com/page", "text": "External" },
+      { "href": "/blog/2026/a-very-long-story.html", "text": "" },
+      { "href": "/careers", "text": "Careers" },
+      { "href": "/pricing", "text": "Pricing" },
+      { "href": "/support", "text": "Support" },
+      { "href": "/docs", "text": "Docs" },
+      { "href": "/legal/privacy", "text": "Privacy" },
+      { "href": "/legal/terms", "text": "Terms" },
+      { "href": "/partners", "text": "Partners" },
+      { "href": "/newsroom", "text": "Newsroom" },
+      { "href": "/events", "text": "Events" }
+    ]
+  }
+}

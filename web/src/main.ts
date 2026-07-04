@@ -11,6 +11,9 @@ import { working } from "./screens/working";
 import { brand } from "./screens/brand";
 import { variants } from "./screens/variants";
 import { workspace } from "./screens/workspace";
+import { prototype } from "./screens/prototype";
+import { deploy } from "./screens/deploy";
+import { audit } from "./screens/audit";
 import { createConversation } from "./components/conversation";
 import { mountToasts } from "./components/toasts";
 import { mountSwitcher } from "./components/switcher";
@@ -18,7 +21,7 @@ import { mountResizer } from "./components/resizer";
 import { login } from "./screens/login";
 import { fetchMe } from "./auth";
 import type { ArtifactRef } from "./state";
-import { beginRun, selectVariant, cancelRun, sendMessage, resetRun, reopenRun, lockView } from "./driver/liveDriver";
+import { beginRun, selectVariant, cancelRun, sendMessage, resetRun, reopenRun, lockView, addVariant, prototypePages, setProtoVariant, deployPages, goLive, rolloutSite, auditSite } from "./driver/liveDriver";
 
 // Default (no param) = a real Opus-on-Bedrock run. Opt into others by param:
 //   ?mode=demo     — scripted offline demo (free, replays the knack sample)
@@ -28,9 +31,6 @@ const _mode = new URLSearchParams(location.search).get("mode");
 const runMode =
   _mode === "demo" || _mode === "scripted" ? "scripted"
   : _mode === "cerebras" ? "cerebras"
-  : _mode === "uplift" ? "uplift"
-  : _mode === "agent" ? "agent"
-  : _mode === "probe" ? "probe"
   : "bedrock";
 
 /** Reflect the active run + current view in the URL (bookmarkable, reload-safe).
@@ -98,6 +98,38 @@ const app: App = {
     if (a.kind === "brand") goView("brand");
     else if (a.variant) app.openVariant(a.variant);
   },
+  // Enter the prototype phase — pin the direction to the active/recommended
+  // variant if none is set yet, then show the templates view.
+  goPrototype: () => {
+    const s = store.get();
+    if (!s.variants.length) { app.goUplift(); return; }
+    if (!s.protoVariant) {
+      const v = s.variants.find((x) => x.id === s.activeVariant) ?? s.variants.find((x) => x.recommended) ?? s.variants[0];
+      store.set({ protoVariant: v.id });
+      setProtoVariant(v.id);
+    }
+    goView("prototype");
+  },
+  addVariant: (instruction: string) => addVariant(instruction),
+  prototypePages: (slugs: string[]) => prototypePages(slugs),
+  setProtoVariant: (variant: VariantId) => { store.set({ protoVariant: variant }); setProtoVariant(variant); },
+  setProtoActive: (slug: string) => store.set({ protoActive: slug }),
+  // Enter the deploy phase — needs a chosen direction; pin it like prototype does.
+  goDeploy: () => {
+    const s = store.get();
+    if (!s.variants.length) { app.goUplift(); return; }
+    if (!s.protoVariant) {
+      const v = s.variants.find((x) => x.id === s.activeVariant) ?? s.variants.find((x) => x.recommended) ?? s.variants[0];
+      store.set({ protoVariant: v.id });
+      setProtoVariant(v.id);
+    }
+    goView("deploy");
+  },
+  deployPages: (slugs: string[]) => deployPages(slugs),
+  goLive: () => goLive(),
+  rollout: () => rolloutSite(),
+  goAudit: () => goView("audit"),
+  runAudit: (target) => auditSite(target),
 };
 
 const factories: Record<ScreenId, (s: RunState, a: App) => Screen | HTMLElement> = {
@@ -106,6 +138,9 @@ const factories: Record<ScreenId, (s: RunState, a: App) => Screen | HTMLElement>
   brand,
   variants,
   workspace,
+  prototype,
+  deploy,
+  audit,
 };
 
 const root = document.getElementById("root")!;

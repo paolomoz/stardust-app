@@ -26,11 +26,24 @@ const PHASES: { id: string; label: string }[] = [
 
 export function topbar(state: RunState, actions: TopbarAction[]): string {
   const inRun = !!state.projectName;
+  // Which phase the current view belongs to (highlighted rung).
+  const curPhase = state.screen === "prototype" ? "prototype"
+    : state.screen === "deploy" ? (state.deploy?.rollout ? "rollout" : "deploy")
+    : state.screen === "audit" ? "audit"
+    : "uplift";
+  // Rungs enable as their phase becomes reachable: uplift always (in a run);
+  // prototype/deploy once there are variants; rollout once something previewed;
+  // audit always (score the original any time; the deployed site once shipped).
+  const enabled = (id: string) =>
+    id === "uplift" || id === "audit" ||
+    ((id === "prototype" || id === "deploy") && state.variants.length > 0) ||
+    (id === "rollout" && !!state.deploy?.pages.some((p) => p.status === "previewed" || p.status === "live"));
   const rung = (p: { id: string; label: string }) => {
-    const active = p.id === "uplift"; // current phase (v1 builds only uplift)
-    const cls = active ? "rung active" : "rung future";
-    // The active rung enters its phase's views; future rungs are inert.
-    return `<button class="${cls}"${active ? ` data-act="phase-uplift"` : " disabled"}><span class="pip"></span><span class="lbl">${esc(p.label)}</span></button>`;
+    const on = p.id === curPhase && enabled(p.id);
+    const can = enabled(p.id);
+    const cls = on ? "rung active" : can ? "rung" : "rung future";
+    // Enabled rungs enter their phase's views; future rungs are inert.
+    return `<button class="${cls}"${can ? ` data-act="phase-${p.id}"` : " disabled"}><span class="pip"></span><span class="lbl">${esc(p.label)}</span></button>`;
   };
   const btn = (a: TopbarAction) =>
     `<button class="btn ${a.kind === "primary" ? "btn-primary" : "btn-quiet"}"${a.id ? ` id="${a.id}"` : ""}${a.to ? ` data-act="${a.to}"` : ""}${a.disabled ? " disabled" : ""}>${esc(a.label)}${a.arrow ? ' <span class="arr">→</span>' : ""}</button>`;

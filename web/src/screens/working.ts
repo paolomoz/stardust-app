@@ -6,7 +6,7 @@ import { h, esc } from "../dom";
 import type { App, Screen } from "../controller";
 import type { RunState } from "../state";
 import { topbar, rail, syncRail } from "../components/shell";
-import { board } from "../components/board";
+import { board, setBoardPreview } from "../components/board";
 import { logout } from "../auth";
 
 const subRight = (s: RunState): string =>
@@ -33,15 +33,38 @@ export function working(state: RunState, app: App): Screen {
 
   wireActions(el, app);
 
-  const update = (s: RunState) => {
-    syncRail(el, s);
+  let latest = state;
+  let boardHtml = "";
+  const renderBoard = (s: RunState) => {
     const bw = el.querySelector<HTMLElement>("#boardwrap");
-    if (bw) bw.innerHTML = (s.error ? `<div class="berror"><div class="errmark">!</div><div class="errmsg">${esc(s.error)}</div><button class="btn btn-primary" data-act="restart">Start over</button></div>` : "") + board(s);
+    if (!bw) return;
+    // Skip the innerHTML swap when nothing visible changed — the store ticks on
+    // every streamed event and a full re-render each tick drops hover/focus on
+    // the rail and restarts the spinners.
+    const html = (s.error ? `<div class="berror"><div class="errmark">!</div><div class="errmsg">${esc(s.error)}</div><button class="btn btn-primary" data-act="restart">Start over</button></div>` : "") + board(s);
+    if (html === boardHtml) return;
+    boardHtml = html;
+    bw.innerHTML = html;
+  };
+
+  const update = (s: RunState) => {
+    latest = s;
+    syncRail(el, s);
+    renderBoard(s);
     const sr = el.querySelector<HTMLElement>("#subRight");
     if (sr) sr.innerHTML = subRight(s);
     const stop = el.querySelector<HTMLButtonElement>("#stopBtn");
     if (stop && s.error) stop.disabled = true;
   };
+
+  // Rail rungs preview a phase in the focus panel without moving the run — a
+  // UI-only selection, so re-render the board subtree in place from local state.
+  el.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>("[data-act^='board-view-']");
+    if (!b || !el.contains(b)) return;
+    setBoardPreview(b.getAttribute("data-act")!.slice("board-view-".length));
+    renderBoard(latest);
+  });
 
   return { el, update };
 }
@@ -60,6 +83,10 @@ export function wireActions(el: HTMLElement, app: App): void {
       case "root": app.restart(); break;
       case "dashboard": app.goView("working"); break;
       case "phase-uplift": app.goUplift(); break;
+      case "phase-prototype": app.goPrototype(); break;
+      case "phase-deploy": app.goDeploy(); break;
+      case "phase-rollout": app.goDeploy(); break;
+      case "phase-audit": app.goAudit(); break;
       case "view-working": app.goView("working"); break;
       case "view-brand": app.goView("brand"); break;
       case "view-variants": app.goView("variants"); break;
@@ -72,7 +99,7 @@ export function wireActions(el: HTMLElement, app: App): void {
       case "back-working": app.goView("working"); break;
       case "back-brand": app.goView("brand"); break;
       case "open-C": app.openVariant("C"); break;
-      case "deploy": /* future rung */ break;
+      case "deploy": app.goDeploy(); break;
     }
   });
 }

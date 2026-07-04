@@ -22,6 +22,11 @@ export async function runLoop({ provider, tools, toolSpecs, system, task, onNarr
   const usage = { prompt: 0, completion: 0, total: 0, calls: 0 };
   let done = false;
   let nudges = 0;
+  // Narration/tool activity is display-only — push it without blocking the loop
+  // (each awaited POST costs an RTT; a long run emits hundreds). Chain onto a
+  // tail promise so events still arrive in order.
+  let sideQ = Promise.resolve();
+  const push = (fn) => { sideQ = sideQ.then(fn).catch(() => {}); };
 
   for (let step = 0; step < maxSteps && !done; step++) {
     const { message, finish, usage: u } = await provider.step(messages, toolSpecs);
@@ -33,7 +38,8 @@ export async function runLoop({ provider, tools, toolSpecs, system, task, onNarr
 
     // Cerebras returns tool_calls alongside content; keep the assistant turn intact.
     messages.push({ role: "assistant", content: message.content ?? "", tool_calls: message.tool_calls });
-    if (message.content?.trim()) await onNarration?.(message.content.trim());
+    const narr = message.content?.trim();
+    if (narr) push(() => onNarration?.(narr));
 
     const calls = message.tool_calls || [];
     if (!calls.length) {
@@ -51,7 +57,7 @@ export async function runLoop({ provider, tools, toolSpecs, system, task, onNarr
       let args = {};
       let parseErr = false;
       try { args = JSON.parse(c.function?.arguments || "{}"); } catch { parseErr = true; }
-      if (LOCAL_TOOLS.has(name)) await onTool?.(name, args);
+      if (LOCAL_TOOLS.has(name)) push(() => onTool?.(name, args));
       const fn = tools[name];
       const result = parseErr
         ? `[error] your ${name} arguments were not valid JSON — they were likely truncated because the output got too long. For a large file, write a first chunk with write_file then add the rest with append_file (or use run_bash with a heredoc).`
@@ -61,5 +67,6 @@ export async function runLoop({ provider, tools, toolSpecs, system, task, onNarr
     }
   }
 
+  await sideQ; // flush pending narration before the caller's terminal events
   return { usage, done, steps: messages };
 }

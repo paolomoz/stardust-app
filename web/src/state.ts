@@ -4,10 +4,12 @@
    Worker WebSocket. Keep this transport-agnostic.
    =========================================================================== */
 
-export type ScreenId = "landing" | "working" | "brand" | "variants" | "workspace";
+export type ScreenId = "landing" | "working" | "brand" | "variants" | "workspace" | "prototype" | "deploy" | "audit";
 export type Phase = "prototype" | "deploy";
 export type TaskStatus = "done" | "run" | "wait";
-export type VariantId = "A" | "B" | "C";
+// Variant ids: the first three are A/B/C; extra directions generated from chat
+// continue D, E, … — so this is an open string, not a closed union.
+export type VariantId = string;
 
 export interface TaskItem {
   id: string;
@@ -61,6 +63,66 @@ export interface VariantCard {
   moves?: string[];
 }
 
+/** A candidate page discovered from the home inventory's internal links — the
+ *  pool the prototype phase can render in the chosen direction. */
+export interface PageCandidate {
+  slug: string;
+  title: string;
+  url: string;
+}
+
+/** A page prototyped in the prototype phase (a template rendered in the chosen
+ *  variant's direction). Built up from template.page_* milestones. */
+export interface TemplatePage {
+  slug: string;
+  title: string;
+  url?: string;
+  variant: string;       // the direction (variant id) it was rendered in
+  src?: string;          // proposed html url (iframe) — set on done
+  thumb?: string;
+  status: "queued" | "running" | "done" | "failed";
+  message?: string;      // failure reason
+}
+
+/** One page in the deploy/rollout ladder — converted to EDS, pushed to DA,
+ *  previewed on aem.page, optionally live on aem.live. */
+export interface DeployPage {
+  slug: string;
+  title: string;
+  status: "converting" | "converted" | "pushing" | "previewed" | "live" | "failed";
+  previewUrl?: string;
+  liveUrl?: string;
+  verified?: boolean;    // fidelity verify (diff + computed-layout) outcome
+  message?: string;      // failure reason / diff flags
+}
+
+/** The run's EDS deployment — one project = one code branch + one DA folder. */
+export interface DeployState {
+  project: string;       // per-site slug (branch name + DA folder)
+  org: string;
+  site: string;
+  branch: string;
+  previewHost: string;   // https://<branch>--<site>--<org>.aem.page
+  variant: string;       // the direction being shipped
+  live: boolean;         // pages have been published to aem.live
+  busy: boolean;         // a deploy/rollout job is in flight
+  rollout: boolean;      // a whole-site rollout is in progress
+  pages: DeployPage[];
+}
+
+/** A stardust:audit result — design + SEO + LLM-visibility scorecard of a URL
+ *  (the original site, or the deployed preview for the before/after story). */
+export interface AuditState {
+  target: "original" | "deployed";
+  url: string;
+  status: "running" | "done" | "failed";
+  overall?: number;                  // 0–100
+  scores?: Record<string, number>;   // seven dimensions
+  reportUrl?: string;                // craft-rendered report.html (iframe)
+  jsonUrl?: string;
+  message?: string;                  // failure reason
+}
+
 export interface RailState {
   swatches: string[];
   signature?: string;
@@ -96,6 +158,12 @@ export interface RunState {
   lastArtifact?: { ref: ArtifactRef; at: number }; // newest artifact → "ready" toast
   runId?: string;             // the active run's id (for publish/ownership calls)
   published?: { path: string; url: string }[]; // this run's published artifacts
+  pageCandidates: PageCandidate[]; // prototype phase: discovered pages to render
+  templates: TemplatePage[];       // prototype phase: page prototypes (queued/done)
+  protoVariant?: string;           // prototype phase: the pinned direction (variant id)
+  protoActive?: string;            // prototype phase: the page slug shown in the preview
+  deploy?: DeployState;            // deploy/rollout phase: EDS push state
+  audit?: AuditState;              // audit phase: latest scorecard
 }
 
 type Listener = (s: RunState) => void;
@@ -126,6 +194,12 @@ function initial(): RunState {
     lastArtifact: undefined,
     runId: undefined,
     published: [],
+    pageCandidates: [],
+    templates: [],
+    protoVariant: undefined,
+    protoActive: undefined,
+    deploy: undefined,
+    audit: undefined,
   };
 }
 

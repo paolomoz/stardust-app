@@ -5,10 +5,9 @@
    pinned task block during the working phase, thinking dots, and the composer. */
 import { h, esc } from "../dom";
 import type { App } from "../controller";
-import type { ArtifactRef, Message, PlanBlock, RunState, ScreenId, TaskItem, VariantId } from "../state";
+import type { ArtifactRef, Message, PlanBlock, RunState, ScreenId, VariantId } from "../state";
 import { store } from "../state";
 import { sendArrow } from "./icons";
-import { taskIcons } from "./icons";
 import { KNACK_SEED_NOTE } from "../data/knack";
 
 /* Next-step suggestions shown under the composer when the agent is idle. A chip
@@ -28,6 +27,14 @@ const SUGGESTIONS: Record<ScreenId, Suggestion[]> = {
     { label: "Calmer palette", prompt: "use a calmer, more restrained palette" },
     { label: "More motion", prompt: "add more motion and life to the page" },
   ],
+  prototype: [
+    { label: "Prototype the about page", prompt: "prototype the about page" },
+    { label: "Prototype the pricing page", prompt: "prototype the pricing page" },
+  ],
+  deploy: [
+    { label: "Prototype another page", prompt: "prototype the about page" },
+  ],
+  audit: [],
 };
 
 function suggestionsFor(s: RunState): Suggestion[] {
@@ -131,16 +138,6 @@ export function convHead(projectName: string, right = ""): string {
   return `<div class="conv-head"><div class="who"><span class="proj"><b>${esc(projectName)}</b> · redesign</span></div>${right}</div>`;
 }
 
-function taskRow(t: TaskItem): string {
-  const st =
-    t.status === "done" ? `<span class="ok">✓</span>` : t.status === "run" ? `<span class="spin"></span>` : `<span class="qd">○</span>`;
-  return `<div class="task t-${t.kind} ${t.status}" data-task="${t.id}">
-    <span class="ti">${taskIcons[t.kind]}</span>
-    <div class="tx"><div class="tl"><span class="cat">${esc(t.cat)}</span> ${esc(t.title)}</div><div class="td">${esc(t.detail)}</div></div>
-    <span class="st">${st}</span>
-  </div>`;
-}
-
 export interface Conversation {
   el: HTMLElement;
   update: (s: RunState) => void;
@@ -152,7 +149,6 @@ export function createConversation(app: App): Conversation {
   const el = h(`<section class="conv" aria-label="conversation">
     <div class="conv-head"><div class="who"><span class="proj"><b id="convProj"></b> · redesign</span></div></div>
     <div class="conv-scroll">
-      <div class="conv-tasks stagger" hidden></div>
       <div class="conv-thread"></div>
       <div class="thinking" hidden aria-label="thinking"><span></span><span></span><span></span></div>
     </div>
@@ -167,7 +163,6 @@ export function createConversation(app: App): Conversation {
 
   const scroller = el.querySelector<HTMLElement>(".conv-scroll")!;
   const threadEl = el.querySelector<HTMLElement>(".conv-thread")!;
-  const tasksEl = el.querySelector<HTMLElement>(".conv-tasks")!;
   const thinkingEl = el.querySelector<HTMLElement>(".thinking")!;
   const projEl = el.querySelector<HTMLElement>("#convProj")!;
   const input = el.querySelector<HTMLInputElement>(".composer input")!;
@@ -239,7 +234,14 @@ export function createConversation(app: App): Conversation {
       etaLabel.textContent = `${remain(s.eta.seconds - elapsed)} · est. ${dur(s.eta.seconds)}`;
     }
   };
-  setInterval(paintEta, 500);
+  // Repaint only while an estimate is actually showing — not for the life of
+  // the page.
+  let etaTimer: number | undefined;
+  const syncEtaTimer = () => {
+    const want = !!(lastState?.agentBusy && lastState.eta);
+    if (want && etaTimer === undefined) etaTimer = window.setInterval(paintEta, 500);
+    if (!want && etaTimer !== undefined) { clearInterval(etaTimer); etaTimer = undefined; }
+  };
 
   const chipHtml = (x: { label: string; prompt?: string; nav?: string }) =>
     `<button class="schip"${x.nav ? ` data-nav="${x.nav}"` : ` data-prompt="${esc(x.prompt ?? "")}"`}>${esc(x.label)}</button>`;
@@ -273,26 +275,8 @@ export function createConversation(app: App): Conversation {
     const key = `${s.runId}:${s.screen}:${s.messages.length}:${s.agentBusy}`;
     if (key !== suggestKey) { renderSuggestions(s); suggestKey = key; }
     paintEta();
+    syncEtaTimer();
     projEl.textContent = s.projectName || "—";
-
-    // Pinned tasks moved to the Overview board (the uplift column); keep the
-    // chat focused on narration. Left here (disabled) for easy revert.
-    const showTasks = false && s.tasks.length > 0 && !s.snapshotReady;
-    tasksEl.hidden = !showTasks;
-    if (showTasks) {
-      const rows = tasksEl.querySelectorAll(".task");
-      if (rows.length !== s.tasks.length) {
-        tasksEl.innerHTML = s.tasks.map(taskRow).join("");
-      } else {
-        for (const t of s.tasks) {
-          const row = tasksEl.querySelector<HTMLElement>(`.task[data-task="${t.id}"]`);
-          if (!row) continue;
-          row.className = `task t-${t.kind} ${t.status}`;
-          const st = row.querySelector(".st")!;
-          st.innerHTML = t.status === "done" ? `<span class="ok">✓</span>` : t.status === "run" ? `<span class="spin"></span>` : `<span class="qd">○</span>`;
-        }
-      }
-    }
 
     // Messages: append-only reconcile (preserves scroll). Rebuild only if the
     // prefix changed (a reset).
@@ -310,7 +294,12 @@ export function createConversation(app: App): Conversation {
     // Thinking dots while the agent is working.
     thinkingEl.hidden = !s.agentBusy;
 
-    input.placeholder = s.screen === "workspace" ? "tell me a change…" : "tell stardust…";
+    input.placeholder =
+      s.screen === "workspace" ? "tell me a change…"
+      : s.screen === "variants" ? "describe another direction…"
+      : s.screen === "prototype" ? "prototype a page…"
+      : s.screen === "deploy" ? "prototype another page…"
+      : "tell stardust…";
 
     // On reload the history arrives in bursts and late layout (markdown replies,
     // artifact cards, images) grows the thread after first paint — until the

@@ -4,7 +4,6 @@ import type { App, Screen } from "../controller";
 import type { RunState } from "../state";
 import { topbar, viewNav, rail, syncRail } from "../components/shell";
 import { openInTab } from "../components/preview";
-import { search } from "../components/icons";
 import { wireActions } from "./working";
 
 export function brand(state: RunState, app: App): Screen {
@@ -16,7 +15,6 @@ export function brand(state: RunState, app: App): Screen {
         <div class="subheader">
           <div class="sub-left">${viewNav("uplift", state)}</div>
           <div class="sub-right">
-            <button class="auditbtn">${search} Run audit</button>
             ${openInTab(state.brandReviewUrl)}
           </div>
         </div>

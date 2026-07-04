@@ -1,0 +1,18 @@
+{
+  "url": "https://sample.org/",
+  "finalUrl": "https://sample.org/",
+  "_comment": "0.14.x flat shape — links is an array of absolute URL strings",
+  "links": [
+    "https://sample.org/",
+    "https://sample.org/products/",
+    "https://sample.org/about-us",
+    "https://sample.org/services/consulting",
+    "https://sample.org/contact#form",
+    "https://accessibe.com/blog/knowledgebase/screen-reader-guide",
+    "tel:+18014363672",
+    "mailto:hi@sample.org",
+    "https://sample.org/careers",
+    "https://sample.org/pricing",
+    "https://sample.org/products/"
+  ]
+}

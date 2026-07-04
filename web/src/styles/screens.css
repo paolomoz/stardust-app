@@ -27,6 +27,16 @@
 .landing .field input::placeholder { color: var(--fg-faint); }
 .landing .field .send { width: 38px; height: 38px; border-radius: 10px; flex: none; background: var(--amber); color: var(--ink); box-shadow: inset 0 0 0 1px rgba(201,130,45,0.4); display: grid; place-items: center; transition: background .2s var(--ease); }
 .landing .field .send:hover { background: var(--amber-light); }
+/* Demo mode: locked knack.com input + a pulsing Go so the operator just presses it. */
+.landing .field.demo { border-color: rgba(201,130,45,0.5); }
+.landing .field.demo input { color: var(--fg-dim); cursor: default; caret-color: transparent; }
+.landing .field .send.pulse { animation: gopulse 1.8s var(--ease) infinite; }
+@keyframes gopulse {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(201,130,45,0.4), 0 0 0 0 rgba(201,130,45,0.45); }
+  50% { box-shadow: inset 0 0 0 1px rgba(201,130,45,0.4), 0 0 0 8px rgba(201,130,45,0); }
+}
+.landing .demo-note { margin: 12px auto 0; max-width: 44ch; font-size: 13px; line-height: 1.5; color: var(--fg-muted); }
+.landing .demo-note b { color: var(--amber-deep); }
 .recents { margin: 18px 0 0; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 .recents .lbl { font: 500 11px/22px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-faint); }
 .chip { font-size: 13px; color: var(--fg-dim); padding: 4px 11px; border-radius: 999px; border: 1px solid var(--hairline-soft); background: var(--surface); transition: color .15s var(--ease), border-color .15s var(--ease); }
@@ -107,7 +117,7 @@
 .fixchip { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 var(--text); color: var(--fg-muted); background: var(--bg); border: 1px solid var(--hairline-soft); border-radius: 999px; padding: 6px 11px; }
 .fixchip .ck { color: var(--success); font-size: 11px; }
 
-.gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: start; }
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; align-items: start; }
 .vcard { position: relative; border: 1px solid var(--hairline-soft); border-radius: 14px; overflow: hidden; background: var(--surface); box-shadow: 0 2px 8px -4px rgba(26,31,56,0.12); cursor: pointer; transition: transform .22s var(--ease), box-shadow .22s var(--ease); display: flex; flex-direction: column; }
 .vcard:hover { transform: translateY(-3px); box-shadow: 0 18px 40px -18px rgba(26,31,56,0.28); }
 .vcard.rec { box-shadow: 0 0 0 2px var(--amber), 0 18px 40px -20px rgba(201,130,45,0.4); }
@@ -130,6 +140,73 @@
 .role { margin-top: 2px; font: 500 11px/1 var(--mono); letter-spacing: 0.04em; color: var(--fg-faint); }
 .recpill { position: absolute; top: 10px; right: 10px; z-index: 2; font: 600 9.5px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink); background: var(--amber); padding: 5px 8px; border-radius: 6px; box-shadow: inset 0 0 0 1px rgba(201,130,45,0.5); }
 
+/* Variant thumbnail placeholder (extra directions may land without a thumb). */
+.thumb-ph { width: 100%; height: 100%; display: grid; place-items: center; background: var(--sunken); }
+.thumb-ph span { font: 600 34px/1 var(--display); color: var(--fg-faint); }
+
+/* "Another direction" tile in the gallery. */
+.vcard.addcard { cursor: default; border-style: dashed; border-color: var(--hairline); background: var(--bg); box-shadow: none; }
+.vcard.addcard:hover { transform: none; box-shadow: none; border-color: rgba(201,130,45,0.55); }
+.addbody { padding: 16px 14px; display: flex; flex-direction: column; gap: 8px; height: 100%; }
+.addplus { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--surface); border: 1px solid var(--hairline-soft); font: 500 20px/1 var(--display); color: var(--amber-deep); }
+.addttl { font: 600 15px/1.15 var(--display); color: var(--fg); }
+.addsub { font-size: 12.5px; line-height: 1.45; color: var(--fg-muted); }
+.addfield { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
+.addvar-in { width: 100%; box-sizing: border-box; background: var(--surface); border: 1px solid var(--hairline-soft); border-radius: 9px; padding: 9px 11px; font: 400 13px/1.4 var(--text); color: var(--fg); outline: none; }
+.addvar-in:focus { border-color: rgba(201,130,45,0.55); box-shadow: 0 0 0 3px rgba(201,130,45,0.12); }
+.addvar-btn { align-self: flex-start; font: 600 12.5px/1 var(--text); padding: 8px 13px; border-radius: 8px; color: var(--ink); background: var(--amber); box-shadow: inset 0 0 0 1px rgba(201,130,45,0.4); cursor: pointer; transition: background .15s var(--ease); }
+.addvar-btn:hover { background: var(--amber-light); }
+
+/* ---- prototype phase ---- */
+.protolayout { flex: 1; min-height: 0; display: grid; grid-template-columns: 280px 1fr; }
+.protoside { border-right: 1px solid var(--hairline-soft); display: flex; flex-direction: column; min-height: 0; padding: 14px; gap: 12px; background: var(--bg); }
+.protohint { font-size: 12.5px; line-height: 1.5; color: var(--fg-muted); }
+.protohint b { color: var(--amber-deep); }
+.pagelist { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.prow { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border-radius: 9px; border: 1px solid var(--hairline-soft); background: var(--surface); font-size: 13px; color: var(--fg); }
+.prow.pick { cursor: pointer; }
+.prow.pick:hover { border-color: var(--hairline); }
+.prow.done { cursor: pointer; }
+.prow.done:hover, .prow.on { border-color: rgba(201,130,45,0.55); box-shadow: inset 0 0 0 1px rgba(201,130,45,0.28); }
+.prow.busy { opacity: .8; }
+.prow.failed { opacity: .75; }
+.prow .pcheck { flex: none; accent-color: var(--amber-deep); width: 15px; height: 15px; }
+.prow .pst { flex: none; width: 16px; display: grid; place-items: center; }
+.prow .ptx { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.prow .ptx b { font: 600 13px/1.2 var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prow .psub { font: 500 10.5px/1 var(--mono); color: var(--fg-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tperr { color: var(--amber-deep); font-weight: 700; font-size: 13px; }
+.pempty { font-size: 12.5px; line-height: 1.5; color: var(--fg-faint); padding: 8px 2px; }
+.protogo { flex: none; }
+.protoprev { min-width: 0; min-height: 0; position: relative; }
+
+/* Deploy phase — target card, ledger rows, action stack. */
+.dtarget { flex: none; }
+.deploy-target { display: flex; flex-direction: column; gap: 4px; }
+.deploy-target .psub a { color: var(--amber-deep); text-decoration: none; }
+.deploy-target .psub a:hover { text-decoration: underline; }
+.prow.waiting { opacity: .55; }
+.prow.converting .psub, .prow.pushing .psub { color: var(--amber-deep); }
+.prow.live { border-color: color-mix(in srgb, var(--success) 45%, transparent); }
+.prow .dcheck { flex: none; accent-color: var(--amber-deep); width: 15px; height: 15px; }
+.prow .psub a { color: var(--amber-deep); text-decoration: none; }
+.prow .psub a:hover { text-decoration: underline; }
+.dactions { flex: none; display: flex; flex-direction: column; gap: 7px; }
+.dactions .btn { width: 100%; justify-content: center; }
+
+/* Audit phase — overall score + dimension chips. */
+.auditbody { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.audit-overall { display: flex; align-items: baseline; gap: 6px; }
+.audit-overall .num { font: 700 40px/1 var(--text); color: var(--amber-deep); }
+.audit-overall .of { font: 600 15px/1 var(--text); color: var(--fg-faint); }
+.audit-overall .lbl { margin-left: 8px; font: 500 11px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-muted); }
+.dimchips { display: flex; flex-wrap: wrap; gap: 6px; }
+.protoprev .preview { height: 100%; }
+.protoblank { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 40px; text-align: center; background: radial-gradient(ellipse 70% 60% at 50% 38%, var(--surface) 0%, var(--canvas) 70%); }
+.protoblank .pb-star { font-size: 26px; color: var(--amber-deep); }
+.protoblank .pb-tx { max-width: 340px; font-size: 13.5px; line-height: 1.55; color: var(--fg-dim); }
+.protoblank .pb-tx b { color: var(--fg); }
+
 @media (prefers-reduced-motion: reduce) {
   .spin, .ring, .ring2, .bigstar { animation: none; }
   .sk { animation: none; background: var(--sunken); }
@@ -145,21 +222,65 @@
 
 /* --- Overview board (the four-phase journey) --- */
 .boardwrap { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
-.board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; align-items: start; }
-.bcol { display: flex; flex-direction: column; gap: 9px; padding: 12px; border: 1px solid var(--hairline-soft); border-radius: 13px; background: var(--bg); }
-.bcol.active { background: var(--surface); box-shadow: 0 8px 28px -18px rgba(26,31,56,0.25); }
-.bcol.future { opacity: .62; }
-.bhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 2px 2px 8px; border-bottom: 1px solid var(--hairline-soft); }
-.bhx { min-width: 0; }
-.btitle { font: 600 14px/1.1 var(--display); color: var(--fg); }
-.bsub { font: 500 11px/1 var(--mono); color: var(--fg-faint); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bbadge { font: 600 9px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); border: 1px solid var(--hairline-soft); border-radius: 5px; padding: 3px 6px; flex: none; }
-.bbadge.run { color: var(--amber-deep); border-color: rgba(201,130,45,0.4); background: rgba(232,185,94,0.14); }
-.bbadge.done { color: var(--success); border-color: rgba(45,140,90,0.35); }
-.brows { display: flex; flex-direction: column; gap: 7px; }
-.bempty { font: 500 12px/1 var(--mono); color: var(--fg-faint); padding: 8px 2px; }
+/* Option A: focus panel (live phase detail) beside the rail (the full ladder). */
+.ovb { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .ovb { grid-template-columns: 1fr; } }
+
+.ovb-focus { background: var(--surface); border: 1px solid var(--hairline); border-radius: 14px; padding: 16px 16px 14px; box-shadow: 0 8px 28px -20px rgba(26,31,56,0.28); }
+.ovb-fhead { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--hairline-soft); margin-bottom: 12px; }
+.ovb-ft { font: 600 17px/1 var(--display); color: var(--fg); }
+.ovb-fs { font: 500 12px/1 var(--mono); color: var(--fg-faint); margin-left: 8px; }
+.ovb-tasks { display: flex; flex-direction: column; gap: 8px; }
+.ovb-meta { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--hairline-soft); font: 500 11.5px/1 var(--mono); color: var(--fg-dim); }
+.ovb-banner { margin-bottom: 12px; padding: 9px 11px; border-radius: 9px; font: 500 12px/1.4 var(--display); }
+.ovb-banner.preview { background: rgba(232,185,94,0.12); color: var(--amber-deep); }
+.ovb-banner.done { background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success); }
+
+.ovb-badge { font: 600 9px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); border: 1px solid var(--hairline-soft); border-radius: 5px; padding: 4px 7px; white-space: nowrap; }
+.ovb-badge.run { color: var(--amber-deep); border-color: rgba(201,130,45,0.4); background: rgba(232,185,94,0.14); }
+.ovb-badge.done { color: var(--success); border-color: color-mix(in srgb, var(--success) 35%, transparent); }
+
+/* task rows — category eyebrow above the title so titles own the full width */
+.ovb-task { display: flex; align-items: flex-start; gap: 11px; padding: 11px 13px; border-radius: 11px; border: 1px solid var(--hairline-soft); background: var(--bg); transition: box-shadow .3s var(--ease); }
+.ovb-task .ic { width: 26px; height: 26px; border-radius: 8px; background: rgba(232,185,94,0.14); display: grid; place-items: center; flex: none; color: var(--amber-deep); box-shadow: inset 0 0 0 1px rgba(201,130,45,0.18); }
+.ovb-task .ic svg { width: 14px; height: 14px; }
+.ovb-task .tx { flex: 1; min-width: 0; }
+.ovb-task .eb { font: 600 8.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--fg-faint); margin-bottom: 5px; }
+.ovb-task .tl { font: 500 13.5px/1.25 var(--display); color: var(--fg); }
+.ovb-task .td { font: 500 11px/1.3 var(--mono); color: var(--fg-faint); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ovb-task .st { flex: none; width: 16px; display: grid; place-items: center; margin-top: 2px; }
+.ovb-task.wait .ic { background: var(--sunken); color: var(--fg-faint); box-shadow: none; }
+.ovb-task.done .st { color: var(--success); }
+.ovb-task.run { background: var(--surface); box-shadow: 0 1px 3px rgba(26,31,56,0.06); }
+.ovb-task.run .ic { background: rgba(232,185,94,0.26); box-shadow: inset 0 0 0 1px rgba(201,130,45,0.35); }
+.ovb-task.run .eb, .ovb-task.run .st { color: var(--amber-deep); }
+.ovb-empty { font: 500 12px/1 var(--mono); color: var(--fg-faint); padding: 8px 2px; }
+
+/* rail — the five-rung ladder, fixed order, connector spine */
+.ovb-rail { display: block; padding-left: 2px; }
+.ovb-rung { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 0 0 12px 26px; position: relative; cursor: pointer; font: inherit; color: inherit; }
+.ovb-rung:last-child { padding-bottom: 0; }
+.ovb-rung .dot { position: absolute; left: 2px; top: 3px; width: 13px; height: 13px; border-radius: 50%; background: var(--surface); border: 2px solid var(--fg-faint); z-index: 2; }
+.ovb-rung .spine { position: absolute; left: 8px; top: 14px; width: 2px; bottom: 0; background: var(--hairline-soft); z-index: 1; }
+.ovb-rung:last-child .spine { display: none; }
+.ovb-rung.done .dot { background: var(--success); border-color: var(--success); }
+.ovb-rung.done .spine { background: var(--success); opacity: .5; }
+.ovb-rung.active .dot { background: var(--amber); border-color: var(--amber); box-shadow: 0 0 0 4px rgba(232,185,94,0.25); }
+.rcard { border: 1px solid var(--hairline-soft); border-radius: 11px; padding: 11px 12px; background: var(--bg); transition: box-shadow .2s var(--ease), border-color .2s var(--ease), transform .2s var(--ease); }
+.ovb-rung:hover .rcard { border-color: var(--hairline); box-shadow: 0 4px 14px -10px rgba(26,31,56,0.3); transform: translateY(-1px); }
+.ovb-rung.future .rcard { opacity: .72; }
+.ovb-rung.future:hover .rcard, .ovb-rung.sel.future .rcard { opacity: 1; }
+.ovb-rung.sel .rcard { border-color: rgba(201,130,45,0.5); background: var(--surface); box-shadow: 0 6px 18px -12px rgba(26,31,56,0.32); }
+.rc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rc-t { font: 600 13.5px/1 var(--display); color: var(--fg-muted); }
+.ovb-rung.active .rc-t, .ovb-rung.sel .rc-t { color: var(--fg); }
+.rc-sub { font: 500 10.5px/1.3 var(--mono); color: var(--fg-faint); margin-top: 6px; }
+.rc-flow { font: 500 10.5px/1.5 var(--mono); color: var(--fg-faint); margin-top: 7px; }
+.rc-flow b { color: var(--fg-dim); font-weight: 600; }
+.rc-done { display: flex; align-items: center; gap: 6px; font: 500 10.5px/1.3 var(--mono); color: var(--success); margin-top: 7px; }
+.rc-view { font: 600 8px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--amber-deep); }
 .berror { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 20px; margin-bottom: 14px; border: 1px solid var(--hairline-soft); border-radius: 13px; background: var(--surface); }
-.berror .errmark { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(180,69,47,0.12); color: var(--danger, #b4452f); font-weight: 700; }
+.berror .errmark { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); font-weight: 700; }
 .berror .errmsg { color: var(--fg-dim); font-size: 13px; }
 
 /* --- projects home (landing gallery) --- */

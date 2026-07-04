@@ -42,7 +42,10 @@
           "name": "stardust-sandbox",
           "class_name": "SandboxContainer",
           "image": "../sandbox/Dockerfile",
-          "instance_type": "standard-2",
+          // standard-4: the 0.14.x extract (vision gates, full-page captures)
+          // OOM-killed whole standard-2 instances — silent death at "page
+          // captured", no failure backstop reaches the DO.
+          "instance_type": "standard-4",
           "max_instances": 100
         }
       ],

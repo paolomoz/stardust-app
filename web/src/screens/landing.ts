@@ -26,7 +26,24 @@ function projCard(r: RunSummary): string {
   </button>`;
 }
 
+// Demo mode (?mode=demo / ?mode=scripted): the run always replays the knack
+// sample, so pin the input to knack.com, lock it, and pulse Go — the operator
+// should expect the knack demo, not try a different URL.
+const DEMO = ["demo", "scripted"].includes(new URLSearchParams(location.search).get("mode") ?? "");
+
 export function landing(_state: RunState, app: App): HTMLElement {
+  const field = DEMO
+    ? `<div class="field demo">
+        ${globe}
+        <input type="text" value="knack.com" aria-label="website URL (demo)" readonly aria-readonly="true" tabindex="-1" />
+        <button class="send pulse" aria-label="start the knack.com demo">${sendArrowLg}</button>
+      </div>
+      <p class="demo-note">Demo mode — replays the <b>knack.com</b> sample end to end. Just press Go.</p>`
+    : `<div class="field">
+        ${globe}
+        <input type="text" placeholder="https://example.com" aria-label="website URL" />
+        <button class="send" aria-label="start">${sendArrowLg}</button>
+      </div>`;
   const el = h(`<div class="landing">
     <div class="landing-user">${userChip()}</div>
     <div class="dust"></div>
@@ -35,11 +52,7 @@ export function landing(_state: RunState, app: App): HTMLElement {
       <h1>stardust</h1>
       <p class="tag">brief <span class="op">+</span> seed <span class="op">=</span> star</p>
       <p class="sub">Redesign any website and ship it to AEM. Paste a URL — stardust reads the brand, proposes directions, and you steer from there.</p>
-      <div class="field">
-        ${globe}
-        <input type="text" placeholder="https://example.com" aria-label="website URL" />
-        <button class="send" aria-label="start">${sendArrowLg}</button>
-      </div>
+      ${field}
       <div class="yourruns">
         <div class="yr-h">Your projects</div>
         <div class="proj-grid"><div class="yr-empty">Loading…</div></div>
@@ -50,7 +63,7 @@ export function landing(_state: RunState, app: App): HTMLElement {
 
   const input = el.querySelector<HTMLInputElement>(".field input")!;
   const fire = () => {
-    const url = input.value.trim();
+    const url = DEMO ? "knack.com" : input.value.trim();
     if (url) app.start(url);
   };
   el.querySelector<HTMLButtonElement>(".field .send")!.addEventListener("click", fire);
