@@ -9,7 +9,7 @@ import { getContainer } from "@cloudflare/containers";
 import type { Env } from "./index";
 import type { AuditState, DeployPage, DeployState, Message, PageCandidate, RailState, ScreenId, TaskItem, TemplatePage, VariantCard, VariantId } from "../state";
 import type { ClientCommand, ServerEvent } from "../shared/protocol";
-import { callHaiku } from "./haiku";
+import { scrubEvent } from "./scrub";
 import {
   KNACK_EDS,
   KNACK_PAGES,
@@ -147,6 +147,7 @@ export class RunSession extends DurableObject<Env> {
   private lastEta = 0;                            // last emitted TOTAL seconds (EMA glide)
   private timings: Record<string, number> = {};  // milestone label -> elapsed ms (this run)
   private mode = "";
+  private directions = "";                        // user's free-text design brief (optional)
 
   async fetch(request: Request): Promise<Response> {
     const runId = new URL(request.url).pathname.match(/^\/api\/runs\/([^/]+)\/ws$/)?.[1] ?? "";
@@ -231,6 +232,10 @@ export class RunSession extends DurableObject<Env> {
   /* ---- event plumbing ---- */
 
   private async emit(ev: ServerEvent): Promise<void> {
+    // Single choke point for the no-implementation-details policy: every
+    // user-visible text field is scrubbed here, so failure bubbles, blocked
+    // notices, and status/rail lines can't leak what reply/narration doesn't.
+    ev = scrubEvent(ev);
     this.events.push(ev);
     const payload = JSON.stringify(ev);
     // Persist BEFORE broadcasting — if the INSERT throws, a connected client
@@ -278,21 +283,6 @@ export class RunSession extends DurableObject<Env> {
    *  swatches (KNACK_PALETTE is only the scripted-demo fallback). */
   private railState(partial: Omit<RailState, "swatches">): RailState {
     return { swatches: this.realPalette ?? KNACK_PALETTE, ...partial };
-  }
-
-  /** Quick LLM time estimate (Haiku) for the in-flight task, in seconds. Runs
-   *  in parallel with the real work, clamped to a sane range, with a heuristic
-   *  fallback when the model/key is unavailable. */
-  private async estimateEta(kind: "run" | "iterate", detail: string): Promise<number> {
-    const fallback = kind === "run" ? 22 * 60 : 3 * 60;
-    const prompt = kind === "run"
-      ? `A design studio will fully redesign the homepage at ${detail} into three polished, brand-faithful variants: read the live brand, identify tensions, then build three production-quality HTML pages with in-browser visual QA. Estimate the wall-clock time in MINUTES for a thorough job. Reply with ONLY an integer.`
-      : `A designer will apply this single change to an existing prototype web page, including in-browser QA: "${detail}". Estimate the wall-clock time in MINUTES. Reply with ONLY an integer.`;
-    const text = await callHaiku(this.env, prompt, 8);
-    const mins = parseInt(text.match(/\d+/)?.[0] ?? "", 10);
-    if (!Number.isFinite(mins)) return fallback;
-    const clamped = kind === "run" ? Math.min(45, Math.max(8, mins)) : Math.min(12, Math.max(1, mins));
-    return clamped * 60;
   }
 
   /* ---- Dynamic ETA: milestone-anchored, self-calibrating, LLM-free ---- */
@@ -379,14 +369,14 @@ export class RunSession extends DurableObject<Env> {
     await this.env.DB.prepare("UPDATE runs SET result_json = ? WHERE id = ?").bind(JSON.stringify({ ...cur, iterMs }), this.runId).run();
   }
 
-  /** t=0 prior: historical mean (LLM-free) when we have history, else the Haiku
-   *  guess as a weak fallback. Emits the initial ETA anchored at run start. */
-  private async primeEta(detail: string): Promise<void> {
+  /** t=0 prior: the historical mean when we have history, else the tuned
+   *  pipeline default (ETA_DEFAULTS.meanTotal). Fully LLM-free — a blind model
+   *  guess here used to pin the bar at the 45m clamp ceiling and made the
+   *  estimate look static. Emits the initial ETA anchored at run start. */
+  private async primeEta(_detail: string): Promise<void> {
     const m = (this.etaModel = await this.learnEta());
     const start = await this.runStartTs();
-    let seconds = m.meanTotal;
-    if (!m.hasHistory) { const h = await this.estimateEta("run", detail).catch(() => 0); if (h) seconds = h; }
-    seconds = Math.round(Math.min(m.p90, Math.max(m.p10, seconds)));
+    const seconds = Math.round(Math.min(m.p90, Math.max(m.p10, m.meanTotal)));
     this.lastEta = seconds;
     await this.emit({ t: "eta", seconds, startedAt: start });
   }
@@ -402,7 +392,9 @@ export class RunSession extends DurableObject<Env> {
     if (!f || f <= 0) return; // unknown label: recorded for learning, no re-anchor
     const elapsed = elapsedMs / 1000;
     let est = elapsed / f;
-    if (this.lastEta > 0) est = 0.5 * est + 0.5 * this.lastEta; // glide, don't jerk
+    // Glide, don't jerk — but trust live milestone evidence over the prior
+    // (0.5/0.5 made the bar look static when the prior started high).
+    if (this.lastEta > 0) est = 0.7 * est + 0.3 * this.lastEta;
     // variant_done is the last, highest-variance signal (fires 0.57–0.98 of total)
     // and the run is nearly over by then — only let it pull the estimate DOWN, so
     // the bar never jumps backward at the finish.
@@ -417,11 +409,12 @@ export class RunSession extends DurableObject<Env> {
 
   private async start(runId: string): Promise<void> {
     this.runId = runId;
-    const row = await this.env.DB.prepare("SELECT url, mode FROM runs WHERE id = ?")
+    const row = await this.env.DB.prepare("SELECT url, mode, directions FROM runs WHERE id = ?")
       .bind(runId)
-      .first<{ url: string; mode: string }>();
+      .first<{ url: string; mode: string; directions: string | null }>();
     const url = row?.url ?? "https://www.knack.com/";
     this.mode = row?.mode ?? "";
+    this.directions = row?.directions ?? "";
     this.project = deriveProject(url);
     await this.env.DB.prepare("UPDATE runs SET status = 'running', project = ? WHERE id = ?")
       .bind(this.project, runId)
@@ -455,6 +448,7 @@ export class RunSession extends DurableObject<Env> {
     await this.emit({ t: "busy", value: true });
     await this.emit({ t: "eta", seconds: 6 }); // demo timeline is ~6s
     await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock: "⏱ ~ a few minutes · reading the site" } });
+    if (this.directions) await this.emit({ t: "message.append", message: { id: "brief", role: "user", text: `${this.project} — ${this.directions}` } });
     await this.emit({ t: "message.append", message: { id: "intro", role: "agent", lead: `On it — reading **${this.project}**, learning the brand, and composing directions.`, body: ["This normally takes a few minutes. I'll show the snapshot the moment it's ready."] } });
     await this.emit({ t: "screen", screen: "working" });
 
@@ -641,14 +635,17 @@ export class RunSession extends DurableObject<Env> {
     this.uplift = true;
     this.tasks = UPLIFT_TASKS.map((t) => ({ ...t }));
     this.tasks[0].status = "run";
-    const clock = backend === "bedrock" ? "⏱ bedrock · opus · live" : "⏱ cerebras · gemma · live";
-    const label = backend === "bedrock" ? "Bedrock/Opus" : "Cerebras";
+    // Implementation details (model/provider names) never reach the user.
+    const clock = "⏱ live";
     await this.emit({ t: "run.started", runId: this.runId, url, projectName: this.project, seed: "—" });
     await this.emit({ t: "phase", phase: "prototype" });
     await this.emit({ t: "tasks.init", tasks: this.tasks });
     await this.bumpProgress(5);
     await this.emit({ t: "busy", value: true });
     await this.emit({ t: "rail", rail: { swatches: [], busy: true, clock } });
+    // Echo the director's brief as the opening user bubble — it persists in
+    // run_events, so it also reappears when the run is reopened.
+    if (this.directions) await this.emit({ t: "message.append", message: { id: "brief", role: "user", text: `${this.project} — ${this.directions}` } });
     await this.emit({ t: "message.append", message: { id: "intro", role: "agent", lead: `On it — reading **${this.project}**, learning the brand, and composing directions.`, body: ["This normally takes a few minutes. I'll show the snapshot the moment it's ready."] } });
     await this.emit({ t: "screen", screen: "working" });
     void this.primeEta(url).catch(() => {});
@@ -662,8 +659,8 @@ export class RunSession extends DurableObject<Env> {
       // Cerebras (demo model) keeps the single-container serial run.
       const stage = backend === "bedrock" ? "direct" : "";
       this.parallelUplift = stage === "direct";
-      await this.triggerRuntime({ runId: this.runId, url, token, backend, ...(stage ? { stage } : {}) });
-      await this.emit({ t: "message.append", message: { id: "sess", role: "agent", lead: `${label} runtime started — reading ${this.project}…` } });
+      await this.triggerRuntime({ runId: this.runId, url, token, backend, ...(stage ? { stage } : {}), ...(this.directions ? { directions: this.directions } : {}) });
+      await this.emit({ t: "message.append", message: { id: "sess", role: "agent", lead: `Studio started — reading ${this.project}…` } });
     } catch (e) {
       await this.emit({ t: "message.append", message: { id: "no-runner", role: "agent", lead: "Couldn't start the runtime sandbox." } });
       await this.fail(`sandbox unreachable: ${String((e as Error).message ?? e)}`);
@@ -761,11 +758,12 @@ export class RunSession extends DurableObject<Env> {
     const e = (ev ?? {}) as { type?: string; text?: string; name?: string; phase?: string; event?: string; seed?: string; items?: { n: string; text: string }[]; brandReview?: string; sharedFixes?: string[]; variants?: unknown[]; variant?: string; file?: string; message?: string; palette?: string[]; pages?: PageCandidate[]; card?: unknown; slug?: string; title?: string; thumb?: string };
 
     // User-facing message (reply_to_user) → prominent, markdown-rendered.
+    // (Implementation-detail scrubbing happens once, in emit().)
     if (e.type === "reply" && e.text) {
       await this.emit({ t: "message.append", message: { id: `r-${this.seq}`, role: "agent", md: e.text } });
       return;
     }
-    // Model reasoning → dim "thinking" (internal, not a user-facing reply).
+    // Model reasoning → "thinking" narration (internal, not a user-facing reply).
     if (e.type === "narration" && e.text) {
       await this.emit({ t: "message.append", message: { id: `m-${this.seq}`, role: "agent", lead: e.text, thinking: true } });
       return;
@@ -1313,13 +1311,48 @@ export class RunSession extends DurableObject<Env> {
     await this.env.DB.prepare("UPDATE runs SET status = 'error' WHERE id = ?").bind(this.runId).run();
   }
 
-  /** Stop an in-flight run: kill its container (via the runner) and mark it
-   *  canceled. No-op once the run is terminal. */
+  /** Stop the current activity. During the main run this cancels the run
+   *  (terminal). After the run is done it stops the in-flight post-run job
+   *  (iterate/variant/template/audit) but keeps the run's done state, so the
+   *  user can interrupt and keep chatting. */
   private async cancel(): Promise<void> {
-    if (this.finished) return;
+    const row = await this.env.DB.prepare("SELECT ingest_token AS token FROM runs WHERE id = ?").bind(this.runId).first<{ token: string | null }>();
+    if (this.finished) {
+      // Post-run activity: kill the job containers, clear job state, stay done.
+      await this.stopHands(row?.token ?? null);
+      const hadTemplates = this.realTemplates.some((t) => t.status === "running");
+      const hadAudit = this.auditState?.status === "running";
+      const hadDeploy = !!this.deployState?.busy;
+      this.iterating = false;
+      this.iterateStart = 0;
+      this.addingVariant = false;
+      this.variantQueue = [];
+      this.templateInflight = 0;
+      this.realTemplates = this.realTemplates.map((t) => (t.status === "running" ? { ...t, status: "failed", message: "stopped" } : t));
+      if (hadAudit) this.auditState = { ...this.auditState!, status: "failed", message: "stopped" };
+      // Release the deploy latch too — a stranded busy=true makes every later
+      // deploy/rollout refuse with "already in flight". In-flight page rows go
+      // to failed; if the host publish still lands, its events self-heal them.
+      if (hadDeploy) {
+        this.deployState = {
+          ...this.deployState!,
+          busy: false,
+          rollout: false,
+          pages: this.deployState!.pages.map((p) => (p.status === "converting" || p.status === "pushing" ? { ...p, status: "failed", message: "stopped" } : p)),
+        };
+      }
+      await this.persistResult();
+      // Live clients only learn state from panel events — persistResult writes
+      // the DB (reopen path) but repaints nothing, so re-emit what changed.
+      if (hadTemplates) await this.emitTemplates();
+      if (hadAudit && this.auditState) await this.emit({ t: "panel.audit", audit: this.auditState });
+      if (hadDeploy && this.deployState) await this.emit({ t: "panel.deploy", deploy: this.deployState });
+      await this.emit({ t: "message.append", message: { id: `cx-${this.seq}`, role: "agent", lead: "Stopped. Tell me what you'd like instead." } });
+      await this.emit({ t: "busy", value: false });
+      return;
+    }
     this.finished = true;
     this.clearTimers();
-    const row = await this.env.DB.prepare("SELECT ingest_token AS token FROM runs WHERE id = ?").bind(this.runId).first<{ token: string | null }>();
     await this.stopHands(row?.token ?? null);
     await this.emit({ t: "message.append", message: { id: `cx-${this.seq}`, role: "agent", lead: "Run canceled." } });
     await this.emit({ t: "busy", value: false });

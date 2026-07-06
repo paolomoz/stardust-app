@@ -11,8 +11,9 @@ export interface Screen {
 }
 
 export interface App {
-  /** Begin a run for a URL (landing → working, kicks off the driver). */
-  start(url: string): void;
+  /** Begin a run for a URL (landing → working, kicks off the driver).
+   *  `directions` = the user's optional free-text redesign brief. */
+  start(url: string, directions?: string): void;
   /** Working → brand review (snapshot ready). */
   goSnapshot(): void;
   /** Brand → variants. */

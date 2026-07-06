@@ -39,9 +39,9 @@ export function landing(_state: RunState, app: App): HTMLElement {
         <button class="send pulse" aria-label="start the knack.com demo">${sendArrowLg}</button>
       </div>
       <p class="demo-note">Demo mode — replays the <b>knack.com</b> sample end to end. Just press Go.</p>`
-    : `<div class="field">
+    : `<div class="field grow">
         ${globe}
-        <input type="text" placeholder="https://example.com" aria-label="website URL" />
+        <textarea rows="2" placeholder="www.example.com — airy editorial redesign, warm palette, bold headlines, more white space, calm motion, keep logo" aria-label="website URL and optional design directions"></textarea>
         <button class="send" aria-label="start">${sendArrowLg}</button>
       </div>`;
   const el = h(`<div class="landing">
@@ -61,15 +61,47 @@ export function landing(_state: RunState, app: App): HTMLElement {
     <div class="corner">ADOBE · STARDUST · v0.1</div>
   </div>`);
 
-  const input = el.querySelector<HTMLInputElement>(".field input")!;
+  const input = el.querySelector<HTMLInputElement | HTMLTextAreaElement>(".field input, .field textarea")!;
+  // The prompt accepts "URL" or "URL <directions>": the first URL-shaped token
+  // is the target; everything else is the optional design brief the whole
+  // uplift (all variants) must respect.
+  const parsePrompt = (raw: string): { url: string; directions: string } | null => {
+    const m = raw.match(/https?:\/\/\S+|(?:[\w-]+\.)+[a-z]{2,}(?:\/\S*)?/i);
+    if (!m) return null;
+    const directions = (raw.slice(0, m.index) + raw.slice((m.index ?? 0) + m[0].length))
+      .replace(/^[\s,;·—–-]+|[\s,;·—–-]+$/g, "").trim();
+    return { url: m[0], directions };
+  };
   const fire = () => {
-    const url = DEMO ? "knack.com" : input.value.trim();
-    if (url) app.start(url);
+    if (DEMO) { app.start("knack.com"); return; }
+    const parsed = parsePrompt(input.value.trim());
+    if (parsed) app.start(parsed.url, parsed.directions || undefined);
   };
   el.querySelector<HTMLButtonElement>(".field .send")!.addEventListener("click", fire);
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") fire();
+  // Enter submits; Shift+Enter makes a newline (free-text brief can wrap).
+  input.addEventListener("keydown", (e: Event) => {
+    const k = e as KeyboardEvent;
+    if (k.key === "Enter" && !k.shiftKey) { k.preventDefault(); fire(); }
   });
+  // Auto-grow the prompt with its content (capped; then it scrolls vertically).
+  // scrollHeight is 0 while the screen is still detached (the factory builds it
+  // before mount) — never apply that bogus measurement, or the textarea pins to
+  // a sliver and clicks/caret land in dead space.
+  if (input.tagName === "TEXTAREA") {
+    const grow = () => {
+      input.style.height = "auto";
+      const h = input.scrollHeight;
+      if (h > 0) input.style.height = `${Math.min(h, 132)}px`;
+    };
+    input.addEventListener("input", grow);
+    // Clicks on the field's padding/empty areas focus the prompt (bigger target).
+    el.querySelector<HTMLElement>(".field")!.addEventListener("mousedown", (e) => {
+      if (e.target !== input && !(e.target as HTMLElement).closest(".send")) {
+        e.preventDefault();
+        input.focus();
+      }
+    });
+  }
   el.querySelector<HTMLButtonElement>(".userchip")?.addEventListener("click", () => void logout());
 
   // Your projects — resume any past project (in-place, no full reload).

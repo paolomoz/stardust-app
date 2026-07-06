@@ -9,6 +9,7 @@ export const bigStar = `<svg class="bigstar" viewBox="0 0 24 24" aria-hidden="tr
 export const globe = `<svg class="globe" width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2 9h14M9 2c2 2.4 2 11.6 0 14M9 2c-2 2.4-2 11.6 0 14" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>`;
 
 export const sendArrow = `<svg width="15" height="15" viewBox="0 0 16 16"><path d="M2 8h10M8 4l4 4-4 4" fill="none" stroke="#0a1024" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+export const stopSquare = `<svg width="15" height="15" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="#0a1024"/></svg>`;
 export const sendArrowLg = `<svg width="17" height="17" viewBox="0 0 16 16"><path d="M2 8h10M8 4l4 4-4 4" fill="none" stroke="#0a1024" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 export const openTab = `<svg width="13" height="13" viewBox="0 0 16 16"><path d="M6 3H3.5v9.5H13V10M9.5 3H13v3.5M13 3L7.5 8.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;

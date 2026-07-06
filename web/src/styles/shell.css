@@ -124,8 +124,8 @@ body.resizing iframe { pointer-events: none; }
 .conv-tasks { display: flex; flex-direction: column; gap: 7px; }
 .conv-tasks[hidden] { display: none; }
 
-/* Muted tool-activity rows (read_file, run_bash…). */
-.msg.tool { flex-direction: row; align-items: baseline; gap: 7px; margin: -9px 0; opacity: .5; font: 400 12.5px/1.5 var(--mono); color: var(--fg-dim); }
+/* Tool-activity rows (read_file, run_bash…) — small + mono, but full-strength. */
+.msg.tool { flex-direction: row; align-items: baseline; gap: 7px; margin: -9px 0; font: 400 12.5px/1.5 var(--mono); color: var(--fg-muted); }
 .msg.tool .tdot { color: var(--fg-faint); }
 
 /* Thinking dots while the agent works. */
@@ -148,17 +148,16 @@ body.resizing iframe { pointer-events: none; }
 
 .msg { display: flex; flex-direction: column; gap: 6px; max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
 .msg .lead { font: 400 15.5px/1.45 var(--text); color: var(--fg); letter-spacing: -0.01em; }
-.msg p { margin: 0; color: var(--fg-muted); font-size: 14px; line-height: 1.5; }
+.msg p { margin: 0; color: var(--fg); font-size: 14px; line-height: 1.5; }
 .msg p + p { margin-top: 8px; }
 .msg .star { color: var(--amber-deep); }
 .msg .lead strong, .msg p strong { font-weight: 600; color: var(--fg); }
 .msg code { font: 0.88em var(--mono); background: var(--sunken); color: var(--fg-dim); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; white-space: pre-wrap; }
 .msg .clist { margin: 2px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
-.msg .clist li { display: flex; gap: 8px; align-items: baseline; font-size: 13.5px; color: var(--fg-muted); }
+.msg .clist li { display: flex; gap: 8px; align-items: baseline; font-size: 13.5px; color: var(--fg); }
 .msg .clist .ck { color: var(--success); font-size: 12px; }
-/* Model reasoning: dim, secondary — clearly internal "thinking", not a reply. */
-.msg.think .lead { color: var(--fg-faint); font-size: 13px; line-height: 1.5; font-weight: 400; }
-.msg.think .star { opacity: .35; }
+/* Model reasoning: slightly smaller than a reply, but read as normal content. */
+.msg.think .lead { color: var(--fg); font-size: 14px; line-height: 1.5; font-weight: 400; }
 /* User-facing reply (reply_to_user): prominent + full markdown. */
 .msg.reply .reply-body { font: 400 15px/1.55 var(--text); color: var(--fg); }
 .msg.reply .reply-body p { margin: 0; color: var(--fg); font-size: 15px; line-height: 1.55; }
@@ -168,7 +167,7 @@ body.resizing iframe { pointer-events: none; }
 /* Normal inline flow inside each item (NOT flex) — a positioned bullet, so a
    leading <strong> and its following text stay on one line and wrap naturally
    instead of the <strong> being squeezed to a vertical one-char column. */
-.msg.reply .reply-body .md-ul li { position: relative; padding-left: 15px; color: var(--fg-muted); font-size: 14px; line-height: 1.5; }
+.msg.reply .reply-body .md-ul li { position: relative; padding-left: 15px; color: var(--fg); font-size: 14px; line-height: 1.5; }
 .msg.reply .reply-body .md-ul li::before { content: "•"; position: absolute; left: 2px; top: 0; color: var(--amber-deep); }
 .msg.reply .reply-body strong { font-weight: 600; color: var(--fg); }
 .msg.user { align-items: flex-end; }
@@ -189,9 +188,9 @@ body.resizing iframe { pointer-events: none; }
 .seed .h { color: var(--amber-deep); }
 
 /* Signed-in user chip (header + landing). */
-.userchip { width: 30px; height: 30px; border-radius: 50%; overflow: hidden; flex: none; margin-left: 12px; border: 1px solid var(--hairline-soft); background: var(--surface); display: grid; place-items: center; cursor: pointer; transition: box-shadow .15s var(--ease); }
+.userchip { width: 30px; height: 30px; padding: 0; border-radius: 50%; overflow: hidden; flex: none; margin-left: 12px; border: 1px solid var(--hairline-soft); background: var(--surface); display: grid; place-items: center; cursor: pointer; transition: box-shadow .15s var(--ease); }
 .userchip:hover { box-shadow: 0 0 0 2px rgba(201,130,45,0.4); }
-.userchip img { width: 100%; height: 100%; object-fit: cover; }
+.userchip img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 .userchip .ini { font: 600 12px/1 var(--text); color: var(--fg-dim); }
 .landing-user { position: fixed; top: 18px; right: 22px; z-index: 5; }
 
@@ -205,8 +204,8 @@ body.resizing iframe { pointer-events: none; }
 .oauthbtn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 11px 14px; border-radius: 11px; border: 1px solid var(--hairline-soft); background: var(--surface); color: var(--fg); font-size: 14px; font-weight: 500; cursor: pointer; transition: border-color .15s var(--ease), box-shadow .15s var(--ease); }
 .oauthbtn:hover { border-color: rgba(201,130,45,0.55); box-shadow: 0 2px 8px rgba(26,31,56,0.06); }
 
-/* Landing "Your runs" list — resume past runs. */
-.yourruns { width: 100%; max-width: 440px; margin: 24px auto 0; text-align: left; }
+/* Landing "Your runs" list — resume past runs. Full hero width → 3 columns. */
+.yourruns { width: 100%; margin: 24px auto 0; text-align: left; }
 .yr-h { font: 600 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); margin: 0 2px 9px; }
 .yr-list { display: flex; flex-direction: column; gap: 6px; max-height: 264px; overflow-y: auto; }
 .yr-empty { font-size: 13px; color: var(--fg-faint); padding: 6px 2px; }
@@ -250,6 +249,9 @@ body.resizing iframe { pointer-events: none; }
 .composer input::placeholder { color: var(--fg-faint); }
 .composer .send { width: 30px; height: 30px; border-radius: 8px; flex: none; background: var(--amber); color: var(--ink); box-shadow: inset 0 0 0 1px rgba(201,130,45,0.4); display: grid; place-items: center; transition: background .2s var(--ease); }
 .composer .send:hover { background: var(--amber-light); }
+/* Stop state while the agent works — quiet, hairline-bound, same footprint. */
+.composer .send.stop { background: var(--sunken); box-shadow: inset 0 0 0 1px var(--hairline); }
+.composer .send.stop:hover { background: var(--desk); }
 .composer .hint { margin: 9px 2px 0; font-size: 11px; color: var(--fg-faint); }
 .composer .hint .mono { color: var(--fg-dim); }
 

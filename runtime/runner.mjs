@@ -121,7 +121,7 @@ function startContainer(job) {
   });
 }
 
-function launchContainer({ runId, url, token, backend, mode, stage, jobId, instruction, variantId, variantFile, variantName, slug, pageUrl, pageTitle, project, org, site, branch, previewHost, pages }) {
+function launchContainer({ runId, url, token, backend, mode, stage, jobId, instruction, variantId, variantFile, variantName, slug, pageUrl, pageTitle, project, org, site, branch, previewHost, pages, directions }) {
   const out = `${OUTPUTS_DIR}/${runId}`;
   // Post-run jobs (variant/template) run in their own isolated workspace so
   // parallel jobs never race on one stardust/ tree; the run + iterate reuse the
@@ -149,6 +149,7 @@ function launchContainer({ runId, url, token, backend, mode, stage, jobId, instr
     if (mode === "migrate") modeEnv.PAGE_CAP = "20";
   }
   if ((mode === "uplift" || !mode) && stage) modeEnv.UPLIFT_STAGE = stage;
+  if ((mode === "uplift" || !mode) && directions) modeEnv.DIRECTIONS = directions;
 
   const be = backendEnv(backend);
   const { _label, ...envVars } = be;

@@ -15,9 +15,9 @@ const subRight = (s: RunState): string =>
   : `<span class="spin"></span>`;
 
 export function working(state: RunState, app: App): Screen {
-  const actions = state.error ? [] : [{ label: "Stop", kind: "quiet" as const, to: "cancel", id: "stopBtn" }];
+  // No header Stop — the chat composer's send button doubles as Stop while busy.
   const el = h(`<div class="app">
-    ${topbar(state, actions)}
+    ${topbar(state, [])}
     <div class="middle">
       <section class="conv conv-mount" aria-label="conversation"></section>
       <section class="panel" aria-label="overview">
@@ -53,8 +53,6 @@ export function working(state: RunState, app: App): Screen {
     renderBoard(s);
     const sr = el.querySelector<HTMLElement>("#subRight");
     if (sr) sr.innerHTML = subRight(s);
-    const stop = el.querySelector<HTMLButtonElement>("#stopBtn");
-    if (stop && s.error) stop.disabled = true;
   };
 
   // Rail rungs preview a phase in the focus panel without moving the run — a

@@ -7,7 +7,7 @@ import { h, esc } from "../dom";
 import type { App } from "../controller";
 import type { ArtifactRef, Message, PlanBlock, RunState, ScreenId, VariantId } from "../state";
 import { store } from "../state";
-import { sendArrow } from "./icons";
+import { sendArrow, stopSquare } from "./icons";
 import { KNACK_SEED_NOTE } from "../data/knack";
 
 /* Next-step suggestions shown under the composer when the agent is idle. A chip
@@ -180,14 +180,18 @@ export function createConversation(app: App): Conversation {
   });
   const toBottom = () => { scroller.scrollTop = scroller.scrollHeight; };
 
-  // Composer — sends against whatever screen is current.
+  // Composer — sends against whatever screen is current. While the agent works
+  // the same button is a Stop control, so the user can interrupt and then ask.
   const fire = () => {
     const t = input.value.trim();
     if (!t) return;
     input.value = "";
     app.send(store.get().screen, t);
   };
-  sendBtn.addEventListener("click", fire);
+  sendBtn.addEventListener("click", () => {
+    if (store.get().agentBusy) app.cancel();
+    else fire();
+  });
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") fire(); });
 
   // Next-step suggestion chips: nav chips act immediately; prompt chips prefill
@@ -251,8 +255,12 @@ export function createConversation(app: App): Conversation {
   const sugCache: Record<string, string[]> = {};
   let sugInflight = "";
   const renderSuggestions = (s: RunState) => {
+    // Suggestions belong to the END of chat activity — while the agent is
+    // generating, show none (the ETA bar owns the footer); they appear the
+    // moment busy clears (busy:false / run.done).
+    if (s.agentBusy) { suggestEl.innerHTML = ""; return; }
     suggestEl.innerHTML = suggestionsFor(s).map(chipHtml).join(""); // immediate fallback
-    if (!s.runId || s.agentBusy) return;
+    if (!s.runId) return;
     const key = `${s.runId}:${s.screen}:${s.messages.length}`;
     const paint = (items: string[]) => {
       const cur = store.get();
@@ -269,6 +277,7 @@ export function createConversation(app: App): Conversation {
   };
 
   let suggestKey = "";
+  let btnBusy = false;
   const update = (s: RunState) => {
     lastState = s;
     // re-render chips when the run/screen/conversation changes (avoids clobbering)
@@ -293,6 +302,15 @@ export function createConversation(app: App): Conversation {
 
     // Thinking dots while the agent is working.
     thinkingEl.hidden = !s.agentBusy;
+
+    // Composer button: send when idle ↔ stop while the agent works.
+    if (!!s.agentBusy !== btnBusy) {
+      btnBusy = !!s.agentBusy;
+      sendBtn.innerHTML = btnBusy ? stopSquare : sendArrow;
+      sendBtn.classList.toggle("stop", btnBusy);
+      sendBtn.setAttribute("aria-label", btnBusy ? "stop" : "send");
+      sendBtn.title = btnBusy ? "Stop the current activity" : "";
+    }
 
     input.placeholder =
       s.screen === "workspace" ? "tell me a change…"

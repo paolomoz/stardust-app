@@ -212,9 +212,20 @@ function startMarkerWatcher() {
 
 // ---- task strings per mode --------------------------------------------------
 
+// The director's optional free-text design brief, captured with the URL. It
+// binds the WHOLE uplift: bake it into the direction phase so every variant
+// (and every later builder reading direction.md / DESIGN-*) respects it.
+const directions = (env.DIRECTIONS || "").trim();
+const directorBrief = directions
+  ? `\nDIRECTOR'S BRIEF (binding for ALL directions and variants): "${directions}". ` +
+    `Honor it in the tensions/traits reading, in stardust/direction.md, and in every per-variant DESIGN file, ` +
+    `so each variant realizes the brief in its own register — while staying brand-faithful.\n`
+  : "";
+
 const upliftTask =
   env.TASK ||
   `Redesign ${url} for presales. Run stardust:uplift to completion, non-interactively. ` +
+    directorBrief +
     `The skills are baked at /workspace/skills; work in /workspace and write deliverables to ${outputsDir}. ` +
     `Emit each milestone (emit_milestone) the instant it happens and upload each deliverable (upload_artifact) as soon as it exists.`;
 
@@ -225,6 +236,7 @@ const upliftTask =
 const directTask =
   `Redesign ${url} for presales. Run stardust:uplift in HANDS-OFF mode, but ONLY through its direction phases — ` +
   `stop BEFORE prototyping; the three variant pages are built afterwards by parallel workers, NOT by you. ` +
+  directorBrief +
   `The skills are baked at /workspace/skills; work in /workspace; write deliverables to ${outputsDir}.\n` +
   `1. Uplift Phase 1: stardust:extract ${url} --single, in full (live render, vision-verified capture). Emit extract.started / ` +
   `extract.seed / extract.tensions / extract.brand_ready milestones the INSTANT each happens, and upload brand-review.html plus every asset it references.\n` +
@@ -314,7 +326,8 @@ const deployTask =
   `into stardust/prototypes/ so the skill finds them where it expects.\n` +
   `- Write EVERYTHING into ${outputsDir}/_eds/ (the publisher's contract — schema in /workspace/runtime/eds-deploy-guide.md):\n` +
   `  content/  — DA body fragments (home = index.html) + the Step-6 nav/footer fragments under content/fragments/;\n` +
-  `  code/     — blocks/, styles/, fonts/, icons/, img/${project}/ (copy image binaries from ${outputsDir}/assets/), AND any runtime file the ` +
+  `  code/     — blocks/, styles/, fonts/, icons/, img/${project}/ (copy image binaries from ${outputsDir}/assets/), the site favicon ` +
+  `(copy stardust/current/assets/favicon.<ext> to code/favicon.<ext> when it exists — the publisher links it in head.html), AND any runtime file the ` +
   `skill has you adjust — e.g. scripts/postlcp.js so fragments load from /${project}/fragments/ (all content for this project lives under the /${project}/ prefix);\n` +
   `  manifest.json — per the guide's schema (daPath prefix /${project}/; images by absolute code-bus URL ${previewHost}/img/${project}/…).\n` +
   `- If ${outputsDir}/_eds/manifest.json already exists this is an INCREMENTAL deploy: merge, reuse existing block names (read their CSS first), only add new blocks when none fits.\n` +

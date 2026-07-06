@@ -126,6 +126,20 @@ export async function publish(job, { log = console.log } = {}) {
 
     const codeDir = join(edsDir, "code");
     if (existsSync(codeDir)) cpSync(codeDir, repoDir, { recursive: true });
+    // Favicon: if the bundle ships one (deploy skill Step 3 § Favicon), make
+    // sure head.html links it — deterministic, idempotent, .ico needs no link.
+    for (const ext of ["svg", "png", "ico"]) {
+      if (!existsSync(join(repoDir, `favicon.${ext}`))) continue;
+      const headPath = join(repoDir, "head.html");
+      if (ext !== "ico" && existsSync(headPath)) {
+        const head = readFileSync(headPath, "utf8");
+        if (!/rel=["']icon["']/.test(head)) {
+          writeFileSync(headPath, `${head.trimEnd()}\n<link rel="icon" href="/favicon.${ext}">\n`);
+          log(`[eds] head.html: linked /favicon.${ext}`);
+        }
+      }
+      break;
+    }
     // Deterministic Code-Sync marker: poll for this exact string on the branch host.
     const marker = `/* stardust-deploy ${project} ${Date.now()} */`;
     const stylesPath = join(repoDir, "styles", "styles.css");

@@ -6,6 +6,7 @@
    direct Anthropic API. Returns [] on any miss so the UI keeps its static chips. */
 import type { Env } from "./index";
 import { callHaiku } from "./haiku";
+import { scrubInternals } from "./scrub";
 
 const VIEW: Record<string, string> = {
   working: "the project overview",
@@ -52,5 +53,5 @@ export async function suggestNextSteps(env: Env, runId: string, screen: string):
     `Output ONLY the two lines — no numbering, no quotes, no preamble.`;
 
   const text = await callHaiku(env, prompt);
-  return text.split("\n").map((l) => l.replace(/^[-*\d.)\s]+/, "").replace(/\s*\([^)]*\)\s*$/, "").trim()).filter(Boolean).slice(0, 2);
+  return text.split("\n").map((l) => scrubInternals(l.replace(/^[-*\d.)\s]+/, "").replace(/\s*\([^)]*\)\s*$/, "").trim())).filter(Boolean).slice(0, 2);
 }
