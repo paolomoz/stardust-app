@@ -185,15 +185,16 @@ export default {
     if (path === "/api/runs" && request.method === "POST") {
       const user = await getSessionUser(request, env);
       if (!user) return Response.json({ error: "unauthenticated" }, { status: 401 });
-      const { url: target, mode } = (await request.json()) as { url?: string; mode?: string };
+      const { url: target, mode, directions } = (await request.json()) as { url?: string; mode?: string; directions?: string };
       if (!target) return Response.json({ error: "url required" }, { status: 400 });
       const runMode =
         mode === "demo" || mode === "scripted" ? "scripted"
         : mode === "cerebras" ? "cerebras"
         : "bedrock"; // default = real Opus-on-Bedrock run (legacy agent modes fold in)
       const id = crypto.randomUUID();
-      await env.DB.prepare("INSERT INTO runs (id, url, status, mode, user_id, created_at) VALUES (?, ?, 'pending', ?, ?, ?)")
-        .bind(id, target, runMode, user.id, Date.now())
+      const brief = typeof directions === "string" ? directions.trim().slice(0, 2000) : "";
+      await env.DB.prepare("INSERT INTO runs (id, url, status, mode, user_id, created_at, directions) VALUES (?, ?, 'pending', ?, ?, ?, ?)")
+        .bind(id, target, runMode, user.id, Date.now(), brief || null)
         .run();
       return Response.json({ id }, { status: 201 });
     }

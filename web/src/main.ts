@@ -65,7 +65,7 @@ function goView(screen: ScreenId): void {
 }
 
 const app: App = {
-  start: (url) => void beginRun(url, runMode),
+  start: (url, directions) => void beginRun(url, runMode, directions),
   goSnapshot: () => goView("brand"),
   goVariants: () => goView("variants"),
   openVariant: (id) => {

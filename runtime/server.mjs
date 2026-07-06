@@ -65,6 +65,7 @@ function jobEnv(job) {
     if (job.mode === "migrate") e.PAGE_CAP = "20";
   }
   if ((job.mode === "uplift" || !job.mode) && job.stage) e.UPLIFT_STAGE = job.stage;
+  if ((job.mode === "uplift" || !job.mode) && job.directions) e.DIRECTIONS = job.directions;
   return e;
 }
 

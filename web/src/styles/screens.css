@@ -20,11 +20,18 @@
 .hero .tag { font: 500 13px/1 var(--mono); letter-spacing: 0.14em; color: var(--amber-deep); margin: 18px 0 0; }
 .hero .tag .op { color: var(--fg-faint); padding: 0 4px; }
 .hero .sub { margin: 22px auto 0; max-width: 42ch; color: var(--fg-muted); font-size: 16px; line-height: 1.55; }
-.landing .field { margin: 34px auto 0; max-width: 480px; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 14px; padding: 12px 12px 12px 18px; box-shadow: 0 8px 28px -16px rgba(26,31,56,0.22); transition: border-color .2s var(--ease), box-shadow .2s var(--ease); }
+.landing .field { margin: 34px auto 0; max-width: 560px; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 14px; padding: 12px 12px 12px 18px; box-shadow: 0 8px 28px -16px rgba(26,31,56,0.22); transition: border-color .2s var(--ease), box-shadow .2s var(--ease); }
 .landing .field:focus-within { border-color: rgba(201,130,45,0.55); box-shadow: 0 0 0 3px rgba(201,130,45,0.14), 0 8px 28px -16px rgba(26,31,56,0.22); }
 .landing .field .globe { color: var(--fg-faint); flex: none; }
 .landing .field input { flex: 1; background: none; border: none; outline: none; color: var(--fg); font: 400 16px/1.4 var(--text); min-width: 0; }
 .landing .field input::placeholder { color: var(--fg-faint); }
+/* Free-text prompt (URL + design brief): a wrapping textarea that grows with
+   its content instead of scrolling horizontally. Icon pins to the first line,
+   send button to the last. */
+.landing .field.grow { align-items: flex-end; }
+.landing .field.grow .globe { align-self: flex-start; margin-top: 9px; }
+.landing .field textarea { flex: 1; background: none; border: none; outline: none; color: var(--fg); font: 400 16px/1.4 var(--text); min-width: 0; resize: none; padding: 8px 0; min-height: 61px; max-height: 132px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--hairline) transparent; }
+.landing .field textarea::placeholder { color: var(--fg-faint); }
 .landing .field .send { width: 38px; height: 38px; border-radius: 10px; flex: none; background: var(--amber); color: var(--ink); box-shadow: inset 0 0 0 1px rgba(201,130,45,0.4); display: grid; place-items: center; transition: background .2s var(--ease); }
 .landing .field .send:hover { background: var(--amber-light); }
 /* Demo mode: locked knack.com input + a pulsing Go so the operator just presses it. */
@@ -284,7 +291,11 @@
 .berror .errmsg { color: var(--fg-dim); font-size: 13px; }
 
 /* --- projects home (landing gallery) --- */
-.proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; width: 100%; margin-top: 4px; }
+/* Own scroll region: the landing is a fixed 100vh with body overflow hidden, so
+   without this cap a long project list is clipped off-screen (unreachable). */
+.proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; width: 100%; margin-top: 4px; max-height: min(34vh, 320px); overflow-y: auto; overscroll-behavior: contain; padding: 2px 8px 8px 2px; scrollbar-width: thin; scrollbar-color: var(--hairline) transparent; }
+.proj-grid::-webkit-scrollbar { width: 8px; }
+.proj-grid::-webkit-scrollbar-thumb { background: var(--hairline-soft); border-radius: 8px; }
 .projcard { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 13px 14px; border: 1px solid var(--hairline-soft); border-radius: 12px; background: var(--surface); cursor: pointer; text-align: left; transition: border-color .15s var(--ease), transform .15s var(--ease); }
 .projcard:hover { border-color: var(--hairline); transform: translateY(-1px); }
 .projcard .pc-top { display: flex; align-items: center; gap: 7px; }

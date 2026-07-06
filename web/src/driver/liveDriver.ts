@@ -135,13 +135,14 @@ function command(cmd: ClientCommand): void {
 
 /** Landing → start a run: create it, then stream its events over the WS.
  *  "bedrock" = the real Opus run; "cerebras" = cheap demo model; "scripted" =
- *  the offline knack replay. */
-export async function beginRun(url: string, mode: "scripted" | "cerebras" | "bedrock" = "bedrock"): Promise<void> {
+ *  the offline knack replay. `directions` = optional free-text redesign brief,
+ *  honored by every variant of the uplift. */
+export async function beginRun(url: string, mode: "scripted" | "cerebras" | "bedrock" = "bedrock", directions?: string): Promise<void> {
   resetRun();
   const res = await fetch("/api/runs", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ url, mode }),
+    body: JSON.stringify({ url, mode, ...(directions ? { directions } : {}) }),
   });
   if (!res.ok) {
     store.set({ messages: [{ id: "err", role: "agent", lead: "Could not start the run. Is the Worker running?" }] });

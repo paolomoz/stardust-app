@@ -31,6 +31,9 @@ _eds/code/**                       ← overlaid onto the project branch root:
    blocks/<name>/<name>.{css,js}      blocks (AuthorKit-scoped CSS)
    styles/styles.css                  tokens + base (complete)
    fonts/ icons/ img/<project>/       assets (image binaries copied here)
+   favicon.<ext>                      site favicon (from stardust/current/
+                                      assets/favicon.<ext>) — the publisher
+                                      links it in head.html automatically
    scripts/postlcp.js (etc.)          ONLY runtime files the skill has you
                                       adjust (e.g. fragment paths under
                                       /<project>/fragments/)
