@@ -80,7 +80,7 @@ const pageTitle = env.PAGE_TITLE || slug;
 // Deploy-mode config (org/site/branch conventions decided by the DO).
 const project = env.PROJECT || "";
 const daOrg = env.DA_ORG || "paolomoz";
-const daSite = env.DA_SITE || "stardust-app-fable";
+const daSite = env.DA_SITE || "stardust-sendto-aem";
 const branch = env.BRANCH || project;
 const previewHost = env.PREVIEW_HOST || `https://${branch}--${daSite}--${daOrg}.aem.page`;
 let deployPages = [];

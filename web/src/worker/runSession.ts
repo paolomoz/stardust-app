@@ -1747,7 +1747,7 @@ export class RunSession extends DurableObject<Env> {
    *  must fit DNS's 63 chars, so the project slug is trimmed to fit. */
   private async edsConfig(): Promise<{ project: string; org: string; site: string; branch: string; previewHost: string }> {
     const org = this.env.DA_ORG ?? "paolomoz";
-    const site = this.env.DA_SITE ?? "stardust-app-fable";
+    const site = this.env.DA_SITE ?? "stardust-sendto-aem";
     const row = await this.env.DB.prepare("SELECT url FROM runs WHERE id = ?").bind(this.runId).first<{ url: string }>();
     const host = deriveProject(row?.url ?? "");
     const raw = host.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "site";

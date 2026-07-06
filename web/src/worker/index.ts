@@ -39,7 +39,7 @@ export interface Env {
   INGEST_BASE?: string;
   // Host runner that docker-runs the Cerebras/Gemma runtime (mode "cerebras").
   RUNNER_URL?: string;
-  // EDS deploy target (defaults: paolomoz / stardust-app-fable). One code
+  // EDS deploy target (defaults: paolomoz / stardust-sendto-aem). One code
   // branch + one DA folder per stardust project.
   DA_ORG?: string;
   DA_SITE?: string;

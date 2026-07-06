@@ -37,9 +37,11 @@ One command converts finished prototypes into a real **Edge Delivery site**:
   written as an `_eds/` bundle with a machine manifest.
 - The deterministic host publisher (`runtime/eds-publish.mjs`, zero LLM) then:
   pushes the code to a **per-project branch** of
-  `github.com/paolomoz/stardust-app-fable` (gh-authenticated), forces AEM Code
+  `github.com/paolomoz/stardust-sendto-aem` (gh-authenticated), forces AEM Code
   Sync and polls a commit marker, sanitises + PUTs every fragment to the
-  **per-project DA folder** (`DA_TOKEN`), waits for images to be live, POSTs
+  **per-project DA folder** (IMS service token minted by `runtime/da-token.mjs`
+  from `DA_CLIENT_ID/DA_CLIENT_SECRET/DA_SERVICE_TOKEN`), waits for images to
+  be live, POSTs
   previews, and verifies each `.plain.html` for ingestion errors.
 - The deploy screen shows the target (branch · folder · variant), a per-page
   ledger (converting → pushing → previewed → live) with preview links and a
