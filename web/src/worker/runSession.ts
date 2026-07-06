@@ -9,7 +9,7 @@ import { getContainer } from "@cloudflare/containers";
 import type { Env } from "./index";
 import type { AuditState, DeployPage, DeployState, Message, PageCandidate, RailState, ScreenId, TaskItem, TemplatePage, VariantCard, VariantId } from "../state";
 import type { ClientCommand, ServerEvent } from "../shared/protocol";
-import { scrubInternals } from "./scrub";
+import { scrubEvent } from "./scrub";
 import {
   KNACK_EDS,
   KNACK_PAGES,
@@ -232,6 +232,10 @@ export class RunSession extends DurableObject<Env> {
   /* ---- event plumbing ---- */
 
   private async emit(ev: ServerEvent): Promise<void> {
+    // Single choke point for the no-implementation-details policy: every
+    // user-visible text field is scrubbed here, so failure bubbles, blocked
+    // notices, and status/rail lines can't leak what reply/narration doesn't.
+    ev = scrubEvent(ev);
     this.events.push(ev);
     const payload = JSON.stringify(ev);
     // Persist BEFORE broadcasting — if the INSERT throws, a connected client
@@ -754,18 +758,18 @@ export class RunSession extends DurableObject<Env> {
     const e = (ev ?? {}) as { type?: string; text?: string; name?: string; phase?: string; event?: string; seed?: string; items?: { n: string; text: string }[]; brandReview?: string; sharedFixes?: string[]; variants?: unknown[]; variant?: string; file?: string; message?: string; palette?: string[]; pages?: PageCandidate[]; card?: unknown; slug?: string; title?: string; thumb?: string };
 
     // User-facing message (reply_to_user) → prominent, markdown-rendered.
-    // Scrubbed: implementation details (models/providers/skill names) stay internal.
+    // (Implementation-detail scrubbing happens once, in emit().)
     if (e.type === "reply" && e.text) {
-      await this.emit({ t: "message.append", message: { id: `r-${this.seq}`, role: "agent", md: scrubInternals(e.text) } });
+      await this.emit({ t: "message.append", message: { id: `r-${this.seq}`, role: "agent", md: e.text } });
       return;
     }
     // Model reasoning → "thinking" narration (internal, not a user-facing reply).
     if (e.type === "narration" && e.text) {
-      await this.emit({ t: "message.append", message: { id: `m-${this.seq}`, role: "agent", lead: scrubInternals(e.text), thinking: true } });
+      await this.emit({ t: "message.append", message: { id: `m-${this.seq}`, role: "agent", lead: e.text, thinking: true } });
       return;
     }
     if (e.type === "tool") {
-      await this.emit({ t: "message.append", message: { id: `t-${this.seq}`, role: "agent", tool: scrubInternals(e.name ?? "tool") } });
+      await this.emit({ t: "message.append", message: { id: `t-${this.seq}`, role: "agent", tool: e.name ?? "tool" } });
       return;
     }
 
@@ -1316,14 +1320,33 @@ export class RunSession extends DurableObject<Env> {
     if (this.finished) {
       // Post-run activity: kill the job containers, clear job state, stay done.
       await this.stopHands(row?.token ?? null);
+      const hadTemplates = this.realTemplates.some((t) => t.status === "running");
+      const hadAudit = this.auditState?.status === "running";
+      const hadDeploy = !!this.deployState?.busy;
       this.iterating = false;
       this.iterateStart = 0;
       this.addingVariant = false;
       this.variantQueue = [];
       this.templateInflight = 0;
       this.realTemplates = this.realTemplates.map((t) => (t.status === "running" ? { ...t, status: "failed", message: "stopped" } : t));
-      if (this.auditState?.status === "running") this.auditState = { ...this.auditState, status: "failed", message: "stopped" };
+      if (hadAudit) this.auditState = { ...this.auditState!, status: "failed", message: "stopped" };
+      // Release the deploy latch too — a stranded busy=true makes every later
+      // deploy/rollout refuse with "already in flight". In-flight page rows go
+      // to failed; if the host publish still lands, its events self-heal them.
+      if (hadDeploy) {
+        this.deployState = {
+          ...this.deployState!,
+          busy: false,
+          rollout: false,
+          pages: this.deployState!.pages.map((p) => (p.status === "converting" || p.status === "pushing" ? { ...p, status: "failed", message: "stopped" } : p)),
+        };
+      }
       await this.persistResult();
+      // Live clients only learn state from panel events — persistResult writes
+      // the DB (reopen path) but repaints nothing, so re-emit what changed.
+      if (hadTemplates) await this.emitTemplates();
+      if (hadAudit && this.auditState) await this.emit({ t: "panel.audit", audit: this.auditState });
+      if (hadDeploy && this.deployState) await this.emit({ t: "panel.deploy", deploy: this.deployState });
       await this.emit({ t: "message.append", message: { id: `cx-${this.seq}`, role: "agent", lead: "Stopped. Tell me what you'd like instead." } });
       await this.emit({ t: "busy", value: false });
       return;
