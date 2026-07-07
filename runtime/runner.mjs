@@ -14,6 +14,7 @@ import { spawn } from "node:child_process";
 import { createWriteStream, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { publish } from "./eds-publish.mjs";
+import { daAuthConfigured, getDaToken } from "./da-token.mjs";
 
 const PORT = Number(process.env.RUNNER_PORT || 8790);
 const IMAGE = process.env.IMAGE || "stardust-sandbox";
@@ -237,21 +238,31 @@ createServer((req, res) => {
         cancelRun(runId);
       } else if (isPublish) {
         // Deterministic EDS transport — pushes the run's _eds/ bundle to the
-        // code branch + DA + preview (+ live). No container, no LLM.
+        // code branch + DA + preview (+ live). No container, no LLM. The DA
+        // token is minted per publish from the IMS service credentials.
         if (!token) throw new Error("token required");
-        if (!process.env.DA_TOKEN) throw new Error("DA_TOKEN not set on the runner host");
-        void publish({
-          runId,
-          outputsDir: `${OUTPUTS_DIR}/${runId}`,
-          ingestBase: SELF_INGEST,
-          ingestToken: token,
-          daToken: process.env.DA_TOKEN,
-          live: !!job.live,
-          reposDir: `${OUTPUTS_DIR}/_eds-repos`,
-        }).then(
-          (r) => console.log(`[runner] publish ${runId}: ${r.ok ? "ok" : `failed — ${r.message}`}`),
-          (e) => console.error(`[runner] publish ${runId} crashed:`, e),
-        );
+        if (!daAuthConfigured()) throw new Error("DA auth not configured on the runner host (set DA_CLIENT_ID/DA_CLIENT_SECRET/DA_SERVICE_TOKEN in app/.env)");
+        void (async () => {
+          let daToken;
+          try {
+            daToken = await getDaToken();
+          } catch (e) {
+            const message = `DA token exchange failed: ${String(e?.message ?? e)}`;
+            console.error(`[runner] publish ${runId}: ${message}`);
+            await reportFailure(runId, token, "deploy", undefined, undefined, message);
+            return;
+          }
+          const r = await publish({
+            runId,
+            outputsDir: `${OUTPUTS_DIR}/${runId}`,
+            ingestBase: SELF_INGEST,
+            ingestToken: token,
+            daToken,
+            live: !!job.live,
+            reposDir: `${OUTPUTS_DIR}/_eds-repos`,
+          });
+          console.log(`[runner] publish ${runId}: ${r.ok ? "ok" : `failed — ${r.message}`}`);
+        })().catch((e) => console.error(`[runner] publish ${runId} crashed:`, e));
       } else {
         if (!token) throw new Error("token required");
         startContainer({ ...job, url: job.url || "", backend: job.backend || "bedrock" });
@@ -261,4 +272,4 @@ createServer((req, res) => {
       res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: String(e.message || e) }));
     }
   });
-}).listen(PORT, () => console.log(`[runner] listening on http://localhost:${PORT}  image=${IMAGE} outputs=${OUTPUTS_DIR}  backends=${[CEREBRAS_API_KEY && "cerebras", BEDROCK_API_KEY && "bedrock"].filter(Boolean).join(",")}  publish=${process.env.DA_TOKEN ? "da✓" : "da✗"}`));
+}).listen(PORT, () => console.log(`[runner] listening on http://localhost:${PORT}  image=${IMAGE} outputs=${OUTPUTS_DIR}  backends=${[CEREBRAS_API_KEY && "cerebras", BEDROCK_API_KEY && "bedrock"].filter(Boolean).join(",")}  publish=${daAuthConfigured() ? "da✓" : "da✗"}`));
