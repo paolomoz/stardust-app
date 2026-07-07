@@ -1776,7 +1776,6 @@ export class RunSession extends DurableObject<Env> {
     if (!pin) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Pick a direction first — deploy ships the selected variant." } }); return; }
     const creds = await this.jobCreds();
     if (!creds) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "I can't deploy this run — its runtime token is missing." } }); return; }
-    if (this.env.SANDBOX) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Deploy currently runs on the local environment only." } }); return; }
 
     const cfg = await this.edsConfig();
     const want = slugs.length ? slugs : ["home"];
@@ -1823,7 +1822,6 @@ export class RunSession extends DurableObject<Env> {
 
   /** Publish the already-deployed pages to aem.live. */
   private async runGoLive(): Promise<void> {
-    if (this.env.SANDBOX) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Publishing to AEM currently runs on the local environment only." } }); return; }
     const d = this.deployState;
     if (!d || !d.pages.some((p) => p.status === "previewed" || p.status === "live")) {
       await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Deploy to preview first — then I can take it live." } });
@@ -1842,7 +1840,6 @@ export class RunSession extends DurableObject<Env> {
    *  exports the whole site into the same _eds/ contract deploy uses, and the
    *  existing publish → preview → live → verify pipeline ships it. */
   private async runRollout(): Promise<void> {
-    if (this.env.SANDBOX) { await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "Whole-site rollout currently runs on the local environment only." } }); return; }
     if (this.deployState?.busy) {
       await this.emit({ t: "message.append", message: { id: `a-${this.seq}`, role: "agent", lead: "A deploy is already in flight — rollout will have to wait for it." } });
       return;
@@ -1905,17 +1902,43 @@ export class RunSession extends DurableObject<Env> {
     }
   }
 
-  /** Ask the host runner to run the deterministic EDS publisher. */
+  /** Run the deterministic EDS publisher: in prod a dedicated publish container
+   *  (it restores the _eds/ bundle from R2 and mints the DA token from the IMS
+   *  service creds we pass in daEnv); locally the host runner's /publish. */
   private async triggerPublish(live: boolean): Promise<void> {
     const creds = await this.jobCreds();
     if (!creds) return this.onDeployEvent({ event: "failed", message: "runtime token missing" });
-    const url = (this.env.RUNNER_URL ?? "http://localhost:8790/run").replace(/\/run$/, "/publish");
     try {
+      if (this.env.SANDBOX) {
+        // Own container instance (never shared with an LLM job) — the DA/git
+        // creds in the body stay out of every agent process.
+        const c = getContainer(this.env.SANDBOX, `${this.runId}-publish`);
+        const r = await c.fetch(new Request("http://sandbox/publish", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ runId: this.runId, token: creds.token, live, daEnv: this.daEnv() }),
+        }));
+        if (!r.ok) throw new Error(`publisher container ${r.status}`);
+        return;
+      }
+      const url = (this.env.RUNNER_URL ?? "http://localhost:8790/run").replace(/\/run$/, "/publish");
       const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: this.runId, token: creds.token, live }) });
       if (!r.ok) throw new Error(`publisher ${r.status}: ${(await r.text()).slice(0, 200)}`);
     } catch (e) {
       await this.onDeployEvent({ event: "failed", message: (e as Error).message });
     }
+  }
+
+  /** DA + git secrets for the publish container (container env carries no
+   *  secrets, so they travel in the job body — mirrors modelEnv()). */
+  private daEnv(): Record<string, string> {
+    const e: Record<string, string> = {};
+    if (this.env.PUBLIC_ORIGIN) e.INGEST_BASE = this.env.PUBLIC_ORIGIN;
+    if (this.env.DA_CLIENT_ID) e.DA_CLIENT_ID = this.env.DA_CLIENT_ID;
+    if (this.env.DA_CLIENT_SECRET) e.DA_CLIENT_SECRET = this.env.DA_CLIENT_SECRET;
+    if (this.env.DA_SERVICE_TOKEN) e.DA_SERVICE_TOKEN = this.env.DA_SERVICE_TOKEN;
+    if (this.env.GITHUB_TOKEN) e.GITHUB_TOKEN = this.env.GITHUB_TOKEN;
+    return e;
   }
 
   /** deploy.* progress from the conversion job, the host publisher, and the

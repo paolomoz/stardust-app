@@ -13,6 +13,11 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { publish } from "./eds-publish.mjs";
+import { getDaToken } from "./da-token.mjs";
+import { fetchEdsBundle } from "./eds-bundle-fetch.mjs";
 
 const PORT = Number(process.env.PORT || 8080);
 const AGENT = join(dirname(fileURLToPath(import.meta.url)), "agent.mjs");
@@ -92,6 +97,31 @@ async function reportFailure(job, message) {
   } catch { /* best effort */ }
 }
 
+/** Deterministic EDS publish (prod counterpart of runner.mjs /publish): restore
+ *  the run's _eds/ bundle from R2, mint a DA token from the IMS service creds,
+ *  and run the same eds-publish transport. DA + git creds arrive in the job
+ *  body (job.daEnv) because container env never carries secrets; this handler
+ *  only ever runs in a dedicated publish container (keyed <runId>-publish), so
+ *  the creds never share a process with an LLM job. */
+async function runPublish(job) {
+  for (const [k, v] of Object.entries(job.daEnv ?? {})) process.env[k] = v;
+  const ingestBase = job.daEnv?.INGEST_BASE || INGEST_BASE;
+  const outputsDir = mkdtempSync(join(tmpdir(), `eds-${job.runId}-`));
+  const n = await fetchEdsBundle({ ingestBase, runId: job.runId, token: job.token, destDir: outputsDir });
+  console.log(`[sandbox] publish ${job.runId}: restored ${n} bundle files`);
+  const daToken = await getDaToken();
+  const r = await publish({
+    runId: job.runId,
+    outputsDir,
+    ingestBase,
+    ingestToken: job.token,
+    daToken,
+    live: !!job.live,
+    reposDir: join(tmpdir(), "eds-repos"),
+  });
+  console.log(`[sandbox] publish ${job.runId}: ${r.ok ? "ok" : `failed — ${r.message}`}`);
+}
+
 function runJob(job) {
   const child = spawn("node", [AGENT], { env: jobEnv(job), stdio: "inherit" });
   child.on("exit", (code) => {
@@ -106,7 +136,8 @@ createServer((req, res) => {
   if (req.method === "GET") { res.writeHead(200).end("ok"); return; } // platform health check
   const isRun = req.method === "POST" && req.url === "/run";
   const isIterate = req.method === "POST" && req.url === "/iterate";
-  if (!isRun && !isIterate) { res.writeHead(404).end("not found"); return; }
+  const isPublish = req.method === "POST" && req.url === "/publish";
+  if (!isRun && !isIterate && !isPublish) { res.writeHead(404).end("not found"); return; }
   let body = "";
   req.on("data", (c) => (body += c));
   req.on("end", () => {
@@ -114,7 +145,14 @@ createServer((req, res) => {
       const job = JSON.parse(body || "{}");
       if (isIterate) job.mode = "iterate";
       if (!job.runId || !job.token) throw new Error("runId and token required");
-      runJob(job);
+      if (isPublish) {
+        job.mode = "deploy"; // failure-event shape: deploy.failed
+        void runPublish(job).catch(async (e) => {
+          const message = `publish failed: ${String(e?.message ?? e)}`;
+          console.error(`[sandbox] ${message}`);
+          await reportFailure(job, message);
+        });
+      } else runJob(job);
       res.writeHead(202, { "content-type": "application/json" }).end(JSON.stringify({ ok: true }));
     } catch (e) {
       res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: String(e.message || e) }));

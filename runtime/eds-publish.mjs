@@ -34,8 +34,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // hard-fails by design. hirslanden-stardust-eds carries both verified edits.
 const AUTHORKIT_SIBLING = process.env.AUTHORKIT_SIBLING || "/Users/paolo/stardust/migrations/hirslanden-stardust-eds";
 // The bootstrap script ships with the baked deploy skill; build.sh stages it
-// under sandbox/skills/, which is host-readable next to this module.
-const BOOTSTRAP_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "sandbox", "skills", "stardust", "deploy", "scripts", "bootstrap-authorkit.mjs");
+// under sandbox/skills/ on the host, and the image bakes it at /workspace/skills/.
+const BOOTSTRAP_CANDIDATES = [
+  join(dirname(fileURLToPath(import.meta.url)), "..", "sandbox", "skills", "stardust", "deploy", "scripts", "bootstrap-authorkit.mjs"),
+  join(dirname(fileURLToPath(import.meta.url)), "..", "skills", "stardust", "deploy", "scripts", "bootstrap-authorkit.mjs"),
+];
+const BOOTSTRAP_SCRIPT = BOOTSTRAP_CANDIDATES.find((p) => existsSync(p)) ?? BOOTSTRAP_CANDIDATES[0];
 
 /** Encode non-ASCII to numeric entities — DA strips <head>/charset and mangles
  *  raw multibyte UTF-8 (→ U+FFFD); entities survive the round-trip. */
@@ -57,7 +61,8 @@ function git(cwd, args, { env = {} } = {}) {
 
 function ghAskpass() {
   const p = join(tmpdir(), `stardust-askpass-${process.pid}.sh`);
-  writeFileSync(p, `#!/bin/sh\ncase "$1" in\n  Username*) echo x-access-token ;;\n  Password*) exec gh auth token ;;\nesac\n`);
+  // GITHUB_TOKEN (prod containers, no gh CLI) wins; gh-authenticated dev otherwise.
+  writeFileSync(p, `#!/bin/sh\ncase "$1" in\n  Username*) echo x-access-token ;;\n  Password*) if [ -n "$GITHUB_TOKEN" ]; then echo "$GITHUB_TOKEN"; else exec gh auth token; fi ;;\nesac\n`);
   chmodSync(p, 0o700);
   return p;
 }
