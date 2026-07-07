@@ -43,11 +43,18 @@ export interface Env {
   // branch + one DA folder per stardust project.
   DA_ORG?: string;
   DA_SITE?: string;
+  // DA/IMS service credentials + git token for the prod publish container
+  // (secrets; handed to the container in the job body, never as container env).
+  DA_CLIENT_ID?: string;
+  DA_CLIENT_SECRET?: string;
+  DA_SERVICE_TOKEN?: string;
+  GITHUB_TOKEN?: string;
 }
 
 const WS_PATH = /^\/api\/runs\/([^/]+)\/ws$/;
 const INGEST_EVENT = /^\/api\/ingest\/([^/]+)\/event$/;
 const INGEST_ARTIFACT = /^\/api\/ingest\/([^/]+)\/artifact\/(.+)$/;
+const INGEST_ARTIFACT_LIST = /^\/api\/ingest\/([^/]+)\/artifacts$/;
 const PUBLISH = /^\/api\/runs\/([^/]+)\/publish$/;
 const UNPUBLISH = /^\/api\/runs\/([^/]+)\/unpublish$/;
 const PUBLISHED = /^\/api\/runs\/([^/]+)\/published$/;
@@ -225,6 +232,24 @@ export default {
       const stub = env.RUN.get(env.RUN.idFromName(runId));
       await stub.ingestEvent(runId, ev);
       return Response.json({ ok: true });
+    }
+
+    // Token-authed artifact listing (the publish job discovers the run's _eds/
+    // bundle files). ?prefix= narrows to a subtree; paths are run-relative.
+    const listMatch = path.match(INGEST_ARTIFACT_LIST);
+    if (listMatch && request.method === "GET") {
+      const runId = listMatch[1];
+      if (!(await ingestAuthed(env, runId, request))) return new Response("Unauthorized", { status: 401 });
+      const base = `artifacts/${runId}/`;
+      const prefix = base + (url.searchParams.get("prefix") ?? "");
+      const paths: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await env.BUCKET.list({ prefix, cursor });
+        for (const o of page.objects) paths.push(o.key.slice(base.length));
+        cursor = page.truncated ? page.cursor : undefined;
+      } while (cursor);
+      return Response.json({ paths });
     }
 
     // Ingest: the sandbox agent uploads a deliverable. -> R2 + notify the DO.
